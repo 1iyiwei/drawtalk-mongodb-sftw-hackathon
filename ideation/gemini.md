@@ -226,6 +226,7 @@ How would you like to refine this technical plan?
 ------------------------------
 One possibility is to limit the graphics to be purely vector-graphics/code-based animation - basically, an agentic + MongoDB version of project DrawTalking/Narrative-Motion-Block where users use sketch and natural languages to animate their drawings. In the original DrawTalking project, all animations come from pre-baked library, and for this hackathon we can use an agent/LLM to create animations. (Related, I heard that project ChalkTalk, sister project from NYU, recently adopted AI generation.) The narrative motion block project uses LLM but not in a deep agent or harness way.
 
+------------------------------
 An agentic, MongoDB-backed adaptation of DrawTalking and Narrative-Motion-Block is the perfect scope for this hackathon. Focusing strictly on vector graphics (SVG) and code-based animations (HTML5 Canvas/JavaScript, CSS, or SVG attributes) completely solves your graphics pipeline worries.
 Instead of fighting heavy video rendering or slow machine learning pipelines on Sunday, your agents will generate raw code and spatial instructions as text strings. This shifts 100% of the technical spotlight onto your agent harness architecture, long-horizon sequence tracking, and MongoDB storage optimization, which is exactly what the judges want to see.
 
