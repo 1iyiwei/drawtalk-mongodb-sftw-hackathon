@@ -6,6 +6,7 @@ dependencies = [
     "agent-engine-sdk-memory>=0.11.8",
     "anthropic>=1.13.0",
     "fastapi>=0.143.0",
+    "openai>=3.28.0",
     "pymongo>=4.18.3",
     "python-dotenv>=1.2.4",
     "uvicorn[standard]>=0.54.0",

@@ -143,9 +143,11 @@ embeddings and keep only the intent and skill-compiler calls on an outside LLM.
 - [x] MongoDB Atlas plugin (managed MCP + 6 skills) installed at project scope (`.claude/settings.json`)
 - [x] `uv` env: pymongo, anthropic, voyageai, fastapi, uvicorn, python-dotenv, agent-engine-sdk-memory
 - [x] `.gitignore`, `.env.example`
-- [ ] Cluster created (note its tier: Agent Engine hosted memory needs **Flex or higher**, M0 won't do)
-- [ ] Home IP on the access list + DB user. Tomorrow: add the venue IP (or `0.0.0.0/0` for the day)
-- [ ] `.env` filled, connection smoke test (ping + insert + `$vectorSearch` on a toy collection)
+- [x] Cluster0 is **M10** (fine for Vector Search and Agent Engine hosted memory)
+- [x] Home IP on the access list + DB user (read/write). Tomorrow: add the venue IP (or `0.0.0.0/0` for the day)
+- [x] `.env` filled; `uv run python scripts/check_setup.py` passes: Mongo (ping, insert, vector index ~50 s,
+      `$vectorSearch`), Voyage `voyage-4-lite` (1024-d), OpenAI `gpt-5.4-mini`, ElevenLabs `scribe_v2`.
+      Anthropic fails (no credit), so we use OpenAI
 - [ ] MCP OAuth sign-in (new Claude Code session in this folder)
 - [ ] Agent Engine: sign in at agentengine.mongodb.com, download CLI, `agentengine auth login`.
       Drop it if it isn't working by tonight
@@ -154,6 +156,8 @@ embeddings and keep only the intent and skill-compiler calls on an outside LLM.
 ## Open questions
 
 - Solo, so the 4th moment is a stretch goal only.
-- LLM: Claude for the intent agent and skill compiler (structured JSON output).
+- LLM: **OpenAI** (Anthropic account has no credit). `gpt-5.4-mini` for the intent agent (fast), a larger
+  GPT-5.x for the skill compiler if quality needs it. Models come from env vars (`OPENAI_MODEL`) behind one
+  small `llm.py` so switching costs nothing.
 - Is the CoreWeave sandbox useful? Probably not for this one (skills are DSL, rendered in the browser).
   Keep it in mind only if the skill compiler starts producing real code.
