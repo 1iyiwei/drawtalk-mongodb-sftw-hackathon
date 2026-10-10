@@ -148,9 +148,12 @@ embeddings and keep only the intent and skill-compiler calls on an outside LLM.
 - [x] `.env` filled; `uv run python scripts/check_setup.py` passes: Mongo (ping, insert, vector index ~50 s,
       `$vectorSearch`), Voyage `voyage-4-lite` (1024-d), OpenAI `gpt-5.4-mini`, ElevenLabs `scribe_v2`.
       Anthropic fails (no credit), so we use OpenAI
-- [ ] MCP OAuth sign-in (new Claude Code session in this folder)
-- [ ] Agent Engine: sign in at agentengine.mongodb.com, download CLI, `agentengine auth login`.
-      Drop it if it isn't working by tonight
+- [x] MCP OAuth sign-in done (`plugin:mongodb-atlas:mongodb-atlas`, 42 tools). Visible in **new** sessions only
+- [ ] Agent Engine: **CLI download broken on MongoDB's side (2026-10-10 night).** The server cuts the 42 MB
+      binary off after 13–31 MB on every try, over HTTP/2 and HTTP/1.1, and doesn't support resuming. Retry
+      in the morning, or ask the MongoDB team at the venue. Fallback: plain Vector Search on Cluster0
+      (verified working). The expected arm64 v0.1.119 SHA-256 is
+      `30f362ad2c1dd1d5072b997a1e8782fe6104cd04a840b78eb09dcccf3b6571c7`
 - [ ] Decide the public repo (keep `ideation.md` / `sandbox.*` out of it?)
 
 ## Open questions
