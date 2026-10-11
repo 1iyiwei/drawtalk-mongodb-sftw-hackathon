@@ -7,6 +7,8 @@ import time
 
 import asyncio
 
+import raindrop.analytics as raindrop
+
 from app import db, dsl, geometry, llm, memory, recognizer, refine
 
 DEFAULT_STATE = {"rot": 0.0, "sx": 1.0, "sy": 1.0, "op": 1.0}
@@ -29,13 +31,16 @@ where they fit the character. Name behaviors after the style (e.g. "dash", "plod
 Motion program (JSON, every node has "type"):
 - move_along {path: "default"|"stroke"|"arc", speed px/s OR duration s (other null), arc_height (arc only), easing}
   "default" = straight to the target (stops on contact); "stroke" = the user's drawn path; "arc" = jump-like.
-- stay {duration}; wait {duration}; turn_to {angle deg, duration, easing}; scale_to {sx, sy, duration, easing};
+- stay {duration}; wait {duration}; turn_to {angle in DEGREES (absolute pose), duration, easing};
+  rotate_by {degrees (relative; 1 turn = 360, can be negative), duration, easing}; scale_to {sx, sy, duration, easing};
   fade_to {opacity, duration}
 - seq {steps}; par {steps}; layer {base, mods}
 - mods: hop {height px, every_px, squash 0..0.4}, bob {amplitude px, period s}, breathe {amount 0..0.2, period s},
   face_motion {}, emit {glyph, every s, rise px, fade s}
 Idioms: lie down / fall asleep = seq[turn_to angle 80-90, layer{stay, breathe + emit "Z"}]; get up / wake = turn_to 0
-(+ a quick scale_to pop); jump = move_along path "arc"; spin = turn_to 360.
+(+ a quick scale_to pop); jump = move_along path "arc"; spin / rotate / turn around = rotate_by 360 per turn
+(expose a "degrees" parameter, default 360, range 90..1440, and use it as rotate_by.degrees; one turn = 360);
+wobble / shake = seq of small rotate_by ±10-15 or a bob. All angles are degrees, never turns or radians.
 Numbers may be {"param": name} referencing a declared parameter. Expose the things a user would tweak
 (speed, hop height, nap length) as parameters with sensible ranges.
 
@@ -59,8 +64,9 @@ timing: "together" if the actions happen at the same time ("race", "both", "whil
 "in_order" if one after another ("then", "after").
 message: one short sentence describing what will happen, for the user.
 
-intent: "animate" for commands that make characters move now. "refine" when the user corrects or changes HOW an
-existing behavior looks ("should always plod steadily", "jump higher", "make the nap lie down with Zzz",
+intent: "animate" for commands that make characters move now, including plain actions like "the windmill rotates".
+"refine" ONLY when the user talks about how an existing behavior SHOULD look (cues: "should", "always", "next time",
+"instead", "too fast/slow", "more", "less", "-er than") — it corrects or changes HOW an existing behavior looks ("should always plod steadily", "jump higher", "make the nap lie down with Zzz",
 "slower next time"). For refine, set actions to [] and fill `refine`:
 - behavior_id: the catalog behavior being changed; actor: the character it was about (or null)
 - program and params: the COMPLETE new version (edit the current program shown in the catalog; keep what the
@@ -208,10 +214,43 @@ def catalog_text(behaviors: dict[str, dict]) -> str:
     return "\n".join(lines)
 
 
+def invisible_new_behaviors(decision: dict) -> list[str]:
+    """Test-run each newly created behavior with its own parameter values on a 300 px straight path."""
+    out = []
+    for a in decision.get("actions", []):
+        nb = a.get("new_behavior")
+        if not nb:
+            continue
+        try:
+            dsl.validate(nb["program"], {p["name"] for p in nb["params"]})
+            given = {p["name"]: p["value"] for p in a["param_values"]}
+            params = dsl.resolve_params(nb["params"], given, [])
+            start = {"x": 100.0, "y": 300.0}
+            res = dsl.run(nb["program"], start, dsl.Ctx(params=params, path_default=[(100.0, 300.0), (400.0, 300.0)]))
+            vis = dsl.visible_change(res, start)
+            if not vis["visible"]:
+                out.append(f"{a['behavior_id']} (moved {vis['move_px']} px, rotated {vis['rotate_deg']}°, "
+                           f"scaled {vis['scale']}, faded {vis['fade']}, {vis['glyphs']} glyphs)")
+        except dsl.DSLError:
+            continue  # rejected later with its own message
+    return out
+
+
+def flat_props(props: dict) -> dict:
+    """Raindrop properties must be str/int/float/bool: join lists, drop Nones."""
+    out = {}
+    for k, v in props.items():
+        if v is None:
+            continue
+        out[k] = ", ".join(map(str, v)) if isinstance(v, (list, tuple, set)) else v if isinstance(v, (str, int, float, bool)) else str(v)
+    return out
+
+
 async def accept_pending(project_id: str) -> int:
     """Implicit acceptance: moving on to the next command without undoing a clip accepts it (a hard signal)."""
     pending = [e async for e in db.col("examples").find({"project_id": project_id, "outcome": "pending"},
-                                                          {"behavior_id": 1, "behavior_version": 1, "route": 1})]
+                                                          {"behavior_id": 1, "behavior_version": 1, "route": 1,
+                                                           "command_event": 1})]
     if not pending:
         return 0
     from collections import Counter
@@ -223,6 +262,9 @@ async def accept_pending(project_id: str) -> int:
         UpdateOne({"project_id": project_id, "behavior_id": b, "version": v}, {"$inc": {"stats.accepted": n}})
         for (b, v), n in counts.items()])
     await db.log_event(project_id, "examples_accepted", n=len(pending), background=True)
+    for ev in {e.get("command_event") for e in pending} - {None}:
+        raindrop.track_signal(event_id=ev, name="accepted", sentiment="POSITIVE",
+                              properties={"how": "implicit: user moved on without undoing"})
     n_fast = sum(1 for e in pending if e.get("route") == "fast")
     if n_fast:
         await memory.count_fast_accepted(project_id, n_fast, [e["_id"] for e in pending])
@@ -326,9 +368,10 @@ async def run_command(project_id: str, scene_id: str, text: str, stroke: list | 
     async def load_entities():
         return {e["_id"]: e async for e in db.col("entities").find({"project_id": project_id})}
 
-    scene, entities, behaviors, _ = await asyncio.gather(
+    scene, entities, behaviors, _, project = await asyncio.gather(
         db.col("scenes").find_one({"_id": scene_id, "project_id": project_id}), load_entities(),
-        latest_behaviors(project_id), accept_pending(project_id))
+        latest_behaviors(project_id), accept_pending(project_id),
+        db.col("projects").find_one({"_id": project_id}, {"name": 1}))
     if not scene:
         raise ValueError("scene not found")
     states = current_states(scene)
@@ -382,9 +425,10 @@ async def run_command(project_id: str, scene_id: str, text: str, stroke: list | 
     async def none():
         return None
 
+    text_vec = await memory.embed(text, "query") if text else None
     fast, retrieved = await asyncio.gather(
         fast_match(project_id, g_info, summary, by_name) if ((g_info or summary) and not text) else none(),
-        memory.similar_examples(project_id, text) if text else none())
+        memory.similar_examples(project_id, text_vec) if text_vec else none())
     retrieved = retrieved or []
     mark("routed")
     if retrieved:
@@ -399,12 +443,24 @@ async def run_command(project_id: str, scene_id: str, text: str, stroke: list | 
         await db.log_event(project_id, "gesture_unknown", scene_id=scene_id, actor=g_info["actor"], template=g_info["template"],
                            candidates=fast.get("candidates"), threshold=fast.get("threshold"), background=True)
         return {"message": msg, "clips": [], "written": [], "trace": trace, "event_id": None}
+    self_check: list[str] = []
     if fast and fast["decision"]:
         decision, meta, route = fast["decision"], None, "fast"
     else:
         decision, meta = await asyncio.to_thread(llm.structured, SYSTEM, user, "motion_decision", decision_schema(list(by_name)))
         route = "llm"
         mark("llm")
+        problems = invisible_new_behaviors(decision)
+        if problems:  # the harness checks its own new tools before using them, and asks for a fix once
+            self_check = [f"self-check: new behavior {p} → asked the LLM to fix it" for p in problems]
+            decision, meta2 = await asyncio.to_thread(
+                llm.structured, SYSTEM, user + "\n\nYour previous answer created behaviors with NO VISIBLE MOTION: "
+                + "; ".join(problems) + ". Fix the programs (angles are degrees; spins use rotate_by 360 per turn).",
+                "motion_decision", decision_schema(list(by_name)))
+            meta = {**meta2, "latency_ms": meta["latency_ms"] + meta2["latency_ms"], "retried": True}
+            still = invisible_new_behaviors(decision)
+            self_check.append("self-check: fixed ✓" if not still else f"self-check: still invisible: {'; '.join(still)}")
+            mark("llm_retry")
     route_info = {"route": route, "fast_match": fast and {k: v for k, v in fast.items() if k != "decision"},
                   "retrieved": [{"text": r["text"], "behavior": r["behavior_id"], "score": round(r["score"], 3)} for r in retrieved]}
     cmd_event = await db.log_event(
@@ -412,6 +468,20 @@ async def run_command(project_id: str, scene_id: str, text: str, stroke: list | 
         intent=decision["intent"], n_actions=len(decision["actions"]),
         latency_ms=round((time.time() - t0) * 1000), background=True,
     )
+
+    def report(output: str, extra: dict):
+        """Raindrop: one event per command; signals attach to it later by the same id."""
+        project_name = project.get("name", project_id) if project else project_id
+        raindrop.track_ai(
+            user_id=project_name, convo_id=scene_id, event_id=cmd_event, event="animate_command",
+            model=meta["model"] if meta else "fast-path (no LLM)",
+            input=text + (" [path]" if summary else "") + (" [gesture]" if g_info else ""),
+            output=output,
+            properties=flat_props({"route": route, "intent": decision["intent"], "latency_ms": round((time.time() - t0) * 1000),
+                                   "tokens_in": (meta or {}).get("tokens_in"), "tokens_out": (meta or {}).get("tokens_out"),
+                                   "fast_score": (fast or {}).get("score"), "fast_threshold": (fast or {}).get("threshold"),
+                                   "fast_kind": (fast or {}).get("kind"), **extra}),
+        )
 
     if decision["intent"] == "refine" and decision["refine"]:
         r = decision["refine"]
@@ -423,7 +493,26 @@ async def run_command(project_id: str, scene_id: str, text: str, stroke: list | 
             return {"message": f"I couldn't find a behavior called {r['behavior_id']!r} to change.", "clips": [],
                     "written": [], "trace": trace, "event_id": cmd_event}
         try:
-            prop = await refine.propose(project_id, scene_id, text, current, r, cmd_event, entities)
+            try:
+                prop = await refine.propose(project_id, scene_id, text, current, r, cmd_event, entities)
+            except refine.InvisibleMotion as e:  # the harness rejects its own invisible change and asks for a fix once
+                trace["steps"].append(f"self-check: {e}; asked the LLM to fix it")
+                fixed, meta2 = await asyncio.to_thread(
+                    llm.structured, SYSTEM, user + f"\n\nYour refinement of {current['behavior_id']} has NO VISIBLE MOTION: {e}. "
+                    "Rewrite the program so the change is clearly visible (angles are degrees; spins use rotate_by "
+                    "with a 'degrees' parameter, 360 per turn; never use a turn count as an angle).",
+                    "motion_decision", decision_schema(list(by_name)))
+                trace["llm"] = {**meta2, "retried": True}
+                if not (fixed["intent"] == "refine" and fixed["refine"]):
+                    raise refine.InvisibleMotion(str(e))
+                fixed["refine"]["behavior_id"] = current["behavior_id"]
+                decision, r = fixed, fixed["refine"]
+                prop = await refine.propose(project_id, scene_id, text, current, r, cmd_event, entities)
+                trace["steps"].append("self-check: fixed ✓")
+        except refine.InvisibleMotion as e:
+            trace["steps"].append(f"self-check failed: {e}")
+            return {"message": "That change would make no visible motion; try describing it differently.", "clips": [],
+                    "written": [], "trace": trace, "event_id": cmd_event}
         except dsl.DSLError as e:
             trace["steps"].append(f"rejected refinement: {e}")
             return {"message": "That change produced an invalid motion program; try rephrasing.", "clips": [],
@@ -434,16 +523,21 @@ async def run_command(project_id: str, scene_id: str, text: str, stroke: list | 
         trace["steps"] += [f"guardrail: {f}" for f in prop.get("guardrail_fixes", [])]
         trace["total_ms"] = round((time.time() - t0) * 1000)
         prop.pop("created", None)
+        report(f"{decision['message']}\nproposal {current['behavior_id']} v{current['version']}→v{current['version'] + 1}: "
+               + "; ".join(prop["diff"]),
+               {"behavior": current["behavior_id"], "regression_pass": n_pass, "regression_total": len(prop["checks"]),
+                "scope_guess": prop["scope_guess"], "guardrail_fixes": len(prop.get("guardrail_fixes", []))})
         return {"message": decision["message"], "clips": [], "proposal": prop,
                 "written": [{"collection": "proposals", "id": prop["_id"], "what": "pending refinement"}],
                 "trace": trace, "event_id": cmd_event}
 
-    clips, written, trace = [], [], {"llm": meta, "stroke": summary, "decision": decision, "steps": [], **route_info}
+    clips, written, trace = [], [], {"llm": meta, "stroke": summary, "decision": decision, "steps": list(self_check), **route_info}
     if route == "fast":
         trace["steps"].append(f"⚡ fast path ({fast['kind']}): {fast['reason']} → {fast['behavior_id']} "
                               f"(score {fast['score']}, {fast['support']} example(s)), no LLM call")
     prev_start = None
     writes = []
+    created_here: dict[str, dict] = {}
     cursor = scene_end_time(scene)
     for a in decision["actions"]:
         actor_id = by_name.get(a["actor"])
@@ -452,8 +546,14 @@ async def run_command(project_id: str, scene_id: str, text: str, stroke: list | 
             continue
         actor = in_scene[actor_id]
 
-        # behavior: apply an existing one or create v1
-        a["behavior_id"] = normalize_id(a["behavior_id"])
+        # behavior: apply an existing one or create v1. Never accept an empty id or a silent collision.
+        raw = a["behavior_id"].strip()
+        if not raw and a["new_behavior"]:
+            raw = (a["new_behavior"].get("type_path") or ["move"])[-1]
+        a["behavior_id"] = normalize_id(raw or f"move_{a['actor']}")
+        made_now = created_here.get(a["behavior_id"])
+        if made_now is not None and a["new_behavior"] and a["new_behavior"]["program"] != made_now:
+            a["behavior_id"] = normalize_id(f"{a['behavior_id']}_{a['actor']}")
         b = behaviors.get(a["behavior_id"])
         if b is None:
             nb = a["new_behavior"]
@@ -476,6 +576,7 @@ async def run_command(project_id: str, scene_id: str, text: str, stroke: list | 
             }
             await db.col("behaviors").insert_one(b)
             behaviors[b["behavior_id"]] = b
+            created_here[b["behavior_id"]] = b["program"]
             written.append({"collection": "behaviors", "id": b["_id"], "what": f"{b['behavior_id']} v1 (new tool)"})
             trace["steps"].append(f"created behavior {b['behavior_id']} v1")
         else:
@@ -502,6 +603,11 @@ async def run_command(project_id: str, scene_id: str, text: str, stroke: list | 
 
         ctx = dsl.Ctx(params=params, path_default=path_default, path_stroke=path_stroke, clamps=clamps)
         result = dsl.run(b["program"], start, ctx)
+        vis = dsl.visible_change(result, start)
+        if not vis["visible"]:
+            trace["steps"].append(f"⚠ {b['behavior_id']} v{b['version']} made no visible motion for {actor['name']} "
+                                  f"(moved {vis['move_px']} px, rotated {vis['rotate_deg']}°). Fix it with "
+                                  f"“{b['behavior_id']} should …”, e.g. “{b['behavior_id']} should be a full turn”.")
 
         clip_start = prev_start if (decision["timing"] == "together" and prev_start is not None) else cursor
         prev_start = clip_start
@@ -527,12 +633,15 @@ async def run_command(project_id: str, scene_id: str, text: str, stroke: list | 
             "param_sources": sources, "outcome": "pending", "route": route, "command_event": cmd_event,
             "stroke_template": template if a["path"] == "stroke" else None,
             "gesture_template": g_info["template"] if g_info and g_info["actor"] == actor["name"] else None,
+            **({"text_vec": text_vec} if text_vec else {}),
             "created": db.now(),
         }))
-        if text:
-            asyncio.create_task(memory.store_example_vector(example_id, text))
         if g_info and g_info["actor"] == actor["name"] and text:
             trace["steps"].append(f"✳️ learned gesture: this shape now means {b['behavior_id']} (draw it alone next time)")
+            lowered = await memory.learn_from_missed_gesture(project_id, b["behavior_id"], example_id)
+            if lowered:
+                trace["steps"].append(f"routing: your earlier {b['behavior_id']} gesture was missed; "
+                                      f"gesture threshold lowered to {lowered} (new policy version)")
         written.append({"collection": "examples", "id": example_id, "what": f"{actor['name']} → {b['behavior_id']}"})
         writes.append(db.col("behaviors").update_one({"_id": b["_id"]}, {"$inc": {"stats.uses": 1}}))
 
@@ -552,4 +661,8 @@ async def run_command(project_id: str, scene_id: str, text: str, stroke: list | 
     mark("saved")
     trace["timings_ms"] = timings
     trace["total_ms"] = round((time.time() - t0) * 1000)
+    created = [st.split()[2] for st in trace["steps"] if st.startswith("created behavior")]
+    report(decision["message"] + "\n" + "; ".join(f"{in_scene[c['actor']]['name']}: {c['behavior_id']} v{c['behavior_version']}"
+                                                   for c in clips),
+           {"behaviors": [c["behavior_id"] for c in clips], "created": created, "n_clips": len(clips)})
     return {"message": decision["message"], "clips": clips, "written": written, "trace": trace, "event_id": cmd_event}

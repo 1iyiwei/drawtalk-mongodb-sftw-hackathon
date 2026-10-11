@@ -76,3 +76,19 @@ def test_drawn_path_overrides_default_path():
     c = dsl.Ctx(params={"speed": 100}, path_default=None, path_stroke=[(0.0, 0.0), (0.0, 180.0)])
     out = dsl.run(DASH, {"x": 0, "y": 0}, c)
     assert abs(out["end_state"]["y"] - 180) < 1 and out["duration"] > 1.5
+
+
+def test_rotate_by_is_relative_and_visible():
+    spin = {"type": "rotate_by", "degrees": 360, "duration": 1, "easing": "linear"}
+    out = dsl.run(spin, {"x": 0, "y": 0, "rot": 90}, ctx())
+    assert out["end_state"]["rot"] == 450 and dsl.visible_change(out, {"x": 0, "y": 0})["visible"]
+
+
+def test_one_degree_turn_is_not_visible():
+    out = dsl.run({"type": "turn_to", "angle": 1, "duration": 2, "easing": "linear"}, {"x": 0, "y": 0}, ctx())
+    assert not dsl.visible_change(out, {"x": 0, "y": 0})["visible"]
+
+
+def test_gets_up_before_moving_when_lying_down():
+    out = dsl.run(DASH, {"x": 0, "y": 0, "rot": 80}, ctx(speed=300))
+    assert abs(out["end_state"]["rot"]) < 1 and out["frames"][0][2] == 80

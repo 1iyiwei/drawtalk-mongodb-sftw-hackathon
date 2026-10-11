@@ -1,6 +1,9 @@
 """FastAPI app: serves the static front end and the JSON API."""
 
+import os
 from contextlib import asynccontextmanager
+
+import raindrop.analytics as raindrop
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse
@@ -14,7 +17,11 @@ from app import db, geometry, harness, memory, refine, scenes as scene_logic
 async def lifespan(_app):
     await db.ensure_indexes()
     await memory.ensure_vector_index()
+    raindrop.init(os.getenv("RAINDROP_WRITE_KEY"))
+    raindrop.set_debug_logs(os.getenv("RAINDROP_DEBUG") == "1")
     yield
+    raindrop.flush()
+    raindrop.shutdown()
 
 
 app = FastAPI(title="DrawTalk Harness", lifespan=lifespan)
@@ -145,6 +152,11 @@ async def delete_clip(body: ClipDeleteIn):
     )
     await db.log_event(body.project_id, "clip_deleted", scene_id=body.scene_id, clip_id=body.clip_id,
                        behavior_id=clip["behavior_id"], example_id=clip["example_id"])
+    ex = await db.col("examples").find_one({"_id": clip["example_id"]}, {"command_event": 1})
+    if ex and ex.get("command_event"):
+        raindrop.track_signal(event_id=ex["command_event"], name="clip_undone", sentiment="NEGATIVE",
+                              properties={"behavior": clip["behavior_id"], "version": clip["behavior_version"],
+                                          "route": clip.get("route") or "llm"})
     if clip.get("route") == "fast":
         await memory.penalize_fast_guess(body.project_id, clip["example_id"], clip["behavior_id"])
     await scene_logic.resolve_project(body.project_id, dirty={body.scene_id})
@@ -311,3 +323,26 @@ async def projects():
         n = await db.col("events").count_documents({"project_id": p["_id"], "type": "command"})
         out.append({"name": p["name"], "commands": n})
     return out
+
+
+
+@app.post("/api/scenes/delete")
+async def delete_scene(body: SceneOpIn):
+    """Delete a scene; later scenes renumber and continue from the scene before it."""
+    sc = await db.col("scenes").find_one({"_id": body.scene_id, "project_id": body.project_id})
+    if not sc:
+        raise HTTPException(404, "scene not found")
+    if await db.col("scenes").count_documents({"project_id": body.project_id}) <= 1:
+        raise HTTPException(400, "a story needs at least one scene")
+    await db.col("scenes").delete_one({"_id": body.scene_id})
+    async for later in db.col("scenes").find({"project_id": body.project_id, "order": {"$gt": sc["order"]}}).sort("order", 1):
+        o = later["order"] - 1
+        await db.col("scenes").update_one({"_id": later["_id"]}, {"$set": {"order": o, "title": f"Scene {o + 1}"}})
+    # characters introduced in the deleted scene are carried into the next one, so nothing disappears silently
+    nxt = await db.col("scenes").find_one({"project_id": body.project_id, "order": sc["order"]})
+    if nxt and sc.get("added"):
+        await db.col("scenes").update_one({"_id": nxt["_id"]}, {"$set": {f"added.{k}": v for k, v in sc["added"].items()}})
+    await scene_logic.resolve_project(body.project_id)
+    await db.log_event(body.project_id, "scene_deleted", scene_id=body.scene_id, n_clips=len(sc.get("timeline", [])),
+                       background=True)
+    return {"ok": True}

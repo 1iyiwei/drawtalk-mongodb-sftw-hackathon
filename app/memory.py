@@ -44,15 +44,11 @@ async def ensure_vector_index():
         }))
 
 
-async def store_example_vector(example_id: str, text: str):
-    vec = await embed(text, "document")
-    if vec:
-        await db.col("examples").update_one({"_id": example_id}, {"$set": {"text_vec": vec}})
+async def similar_examples(project_id: str, vec: list[float] | None, k: int = 4) -> list[dict]:
+    """Accepted past examples whose command text means something similar (Atlas $vectorSearch).
 
-
-async def similar_examples(project_id: str, text: str, k: int = 4) -> list[dict]:
-    """Accepted past examples whose command text means something similar (Atlas $vectorSearch)."""
-    vec = await embed(text, "query")
+    The caller embeds the command text once and reuses that vector when it stores the new examples
+    (one Voyage call per command keeps us under free-tier rate limits)."""
     if not vec:
         return []
     try:
@@ -71,7 +67,7 @@ async def similar_examples(project_id: str, text: str, k: int = 4) -> list[dict]
 # ---------------------------------------------------------------- harness config (versioned, self-modifying)
 
 DEFAULT_CONFIG = {"fast_path": {"min_score": 0.8, "min_examples": 2, "accepted_since_change": 0,
-                                 "gesture_min_score": 0.6, "gesture_margin": 0.1}}
+                                 "gesture_min_score": 0.5, "gesture_margin": 0.1}}
 
 
 async def get_config(project_id: str) -> dict:
@@ -90,6 +86,13 @@ async def update_config(project_id: str, changes: dict, reason: str, evidence: l
            "created": db.now()}
     await db.col("harness_config").insert_one(doc)
     await db.log_event(project_id, "config_changed", version=doc["version"], changes=changes, reason=reason)
+    if ("min_score" in changes or "gesture_min_score" in changes) and evidence:  # a real policy change
+        ex = await db.col("examples").find_one({"_id": evidence[-1]}, {"command_event": 1})
+        if ex and ex.get("command_event"):
+            import raindrop.analytics as raindrop
+            raindrop.track_signal(event_id=ex["command_event"], name="routing_policy_changed",
+                                  properties={"version": doc["version"], "min_score": fp["min_score"],
+                                              "gesture_min_score": fp["gesture_min_score"], "reason": reason})
     return doc
 
 
@@ -112,3 +115,23 @@ async def penalize_fast_guess(project_id: str, example_id: str, behavior_id: str
     new = round(min(0.95, cfg["fast_path"]["min_score"] + 0.05), 2)
     await update_config(project_id, {"min_score": new, "accepted_since_change": 0},
                         f"fast-path guess '{behavior_id}' was undone: require closer stroke matches", [example_id])
+
+
+async def learn_from_missed_gesture(project_id: str, behavior_id: str, example_id: str):
+    """A gesture was just taught with words. If a recent unrecognized gesture almost matched that same behavior,
+    the threshold was too strict for this user's drawing: lower it to just below the missed score."""
+    import datetime as dt
+    since = db.now() - dt.timedelta(minutes=3)
+    miss = await db.col("events").find_one({"project_id": project_id, "type": "gesture_unknown", "ts": {"$gte": since}},
+                                           sort=[("ts", -1)])
+    if not miss or not miss.get("candidates"):
+        return None
+    top = miss["candidates"][0]
+    cfg = (await get_config(project_id))["fast_path"]
+    if top["behavior"] != behavior_id or top["score"] >= cfg["gesture_min_score"]:
+        return None
+    new = round(max(0.4, top["score"] - 0.03), 2)
+    await update_config(project_id, {"gesture_min_score": new},
+                        f"gesture for '{behavior_id}' was missed at {top['score']:.2f}; you confirmed it means "
+                        f"'{behavior_id}': accept gestures from {new}", [example_id])
+    return new

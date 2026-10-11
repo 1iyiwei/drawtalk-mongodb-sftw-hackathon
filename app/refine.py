@@ -112,6 +112,10 @@ def retime(timeline: list[dict]) -> list[dict]:
 # ---------------------------------------------------------------- propose / apply
 
 
+class InvisibleMotion(ValueError):
+    pass
+
+
 def keep_param_refs(old: object, new: object, params: list[dict], fixes: list[str], path: str = "program") -> object:
     """Guardrail: if a refinement replaced a {"param": x} with a literal number, restore the parameter and move
     the number into x's default. A literal would silently erase every clip's own value."""
@@ -146,6 +150,14 @@ async def propose(project_id: str, scene_id: str, text: str, current: dict, refi
                 fixes.append(f"{spec['name']} range widened to [{spec['min']:g}, {spec['max']:g}] to keep each clip's own value")
     names = {p["name"] for p in refine["params"]}
     dsl.validate(refine["program"], names)
+    # self-check: the candidate must still visibly do something (catches e.g. a 1° "spin")
+    params = dsl.resolve_params(refine["params"], {}, [])
+    probe_start = {"x": 100.0, "y": 300.0}
+    probe = dsl.run(refine["program"], probe_start, dsl.Ctx(params=params, path_default=[(100.0, 300.0), (400.0, 300.0)]))
+    vis = dsl.visible_change(probe, probe_start)
+    if not vis["visible"]:
+        raise InvisibleMotion(f"{current['behavior_id']} v{current['version'] + 1} would move {vis['move_px']} px, "
+                              f"rotate {vis['rotate_deg']}°, scale {vis['scale']}, fade {vis['fade']}")
     candidate = {
         "behavior_id": current["behavior_id"], "version": current["version"] + 1, "parent_version": current["version"],
         "description": refine["description"] or current["description"], "type_path": current["type_path"],
@@ -228,6 +240,11 @@ async def apply(proposal_id: str, scope: str) -> dict:
 
     from app.scenes import resolve_project
     await resolve_project(project_id)  # durations/ends changed: later scenes follow
+    import raindrop.analytics as raindrop
+    raindrop.track_signal(event_id=p["command_event"], name="refinement_applied", sentiment="POSITIVE",
+                          properties={"behavior": p["behavior_id"], "scope": scope, "version": cand["version"] if scope == "behavior" else 0,
+                                      "regression_pass": sum(c["pass"] for c in p["checks"]), "regression_total": len(p["checks"]),
+                                      "clips_upgraded": len(upgraded), "diff": "; ".join(p["diff"])})
     await db.col("proposals").update_one({"_id": proposal_id}, {"$set": {"status": f"applied:{scope}"}})
     await db.log_event(project_id, "refine_applied", proposal_id=proposal_id, behavior_id=p["behavior_id"], scope=scope,
                        version=cand["version"] if scope == "behavior" else None, n_upgraded=len(upgraded),

@@ -181,8 +181,19 @@ function renderScenes() {
   const strip = $("scene-strip"); strip.replaceChildren();
   for (const s of app.scenes) {
     const b = document.createElement("button");
-    b.textContent = s.title; b.className = s._id === app.sceneId ? "on" : "";
+    b.textContent = s.title; b.className = "scene-btn" + (s._id === app.sceneId ? " on" : "");
     b.onclick = () => { app.sceneId = s._id; renderAll(); };
+    if (app.scenes.length > 1) {
+      const x = document.createElement("span"); x.className = "scene-x"; x.textContent = "×"; x.title = `Delete ${s.title}`;
+      x.onclick = async (ev) => {
+        ev.stopPropagation();
+        if (!confirm(`Delete ${s.title} and its ${s.timeline?.length || 0} clip(s)? Later scenes continue from the scene before it.`)) return;
+        await api("/api/scenes/delete", { project_id: app.project._id, scene_id: s._id });
+        if (app.sceneId === s._id) app.sceneId = null;
+        await load(app.project.name); status(`${s.title} deleted`);
+      };
+      b.append(x);
+    }
     strip.append(b);
   }
 }

@@ -112,3 +112,17 @@ button.mini { float: right; font-size: 11px; padding: 1px 6px; text-transform: n
 
 #project-select { font: inherit; font-weight: 600; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
 .viz-root.spot { box-shadow: 0 0 0 3px var(--accent); transition: box-shadow .3s; }
+
+/* keep the canvas in view: the sidebar scrolls on its own (wide screens) */
+@media (min-width: 901px) {
+  html, body { height: 100%; }
+  body { display: flex; flex-direction: column; overflow: hidden; }
+  main { flex: 1; min-height: 0; }
+  .stage { overflow-y: auto; min-height: 0; }
+  aside { overflow-y: auto; min-height: 0; padding-right: 4px; }
+}
+
+.scene-btn { position: relative; padding-right: 20px; }
+.scene-x { position: absolute; top: -7px; right: -7px; width: 18px; height: 18px; line-height: 16px; text-align: center;
+  border-radius: 50%; background: var(--panel); border: 1px solid var(--line); color: var(--muted); font-size: 13px; }
+.scene-x:hover { color: #fff; background: #b3261e; border-color: #b3261e; }

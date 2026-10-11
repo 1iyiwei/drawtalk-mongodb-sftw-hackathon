@@ -1,0 +1,125 @@
+{
+  "input": "demos/demo-3.mp4",
+  "output": "demos/demo-3-short.mp4",
+  "crop": [
+    2690,
+    1460,
+    112,
+    246
+  ],
+  "width": 1920,
+  "title": [
+    "DrawTalk Harness",
+    "An animation tool that learns your language",
+    "Built today · MongoDB Atlas + Vector Search · no preset motions"
+  ],
+  "end": [
+    "Every change it makes to itself is a MongoDB document",
+    "versioned · retrievable · regression-tested",
+    "github.com/1iyiwei/drawtalk-mongodb-sftw-hackathon"
+  ],
+  "segments": [
+    [
+      25.0,
+      100.0,
+      15,
+      "Characters are drawn as vector ink. The behavior library starts EMPTY."
+    ],
+    [
+      100.0,
+      114.4,
+      6,
+      "\"the rabbit and the turtle race towards the rock\""
+    ],
+    [
+      114.4,
+      118.3,
+      4,
+      "The LLM writes two NEW behaviors: dash (rabbit) and plod (turtle)"
+    ],
+    [
+      118.3,
+      121.5,
+      1,
+      "Speed comes from each character's nature: quick rabbit, slow turtle"
+    ],
+    [
+      155.0,
+      169.8,
+      6,
+      "Scene 2 continues from scene 1. A gesture + \"the rabbit sleeps\"..."
+    ],
+    [
+      169.8,
+      177.0,
+      2,
+      "...teaches a new behavior, nap, and saves the gesture as a drawn word"
+    ],
+    [
+      195.0,
+      212.1,
+      6,
+      "A drawn path: \"the turtle plods through towards the tree\""
+    ],
+    [
+      212.1,
+      221.0,
+      2,
+      "Reuses plod v1 (found via Atlas Vector Search) along the path"
+    ],
+    [
+      240.0,
+      252.8,
+      6,
+      "Refinement: \"the turtle should move faster this time\""
+    ],
+    [
+      252.8,
+      257.5,
+      4,
+      "The harness proposes plod v2 with a diff and a regression replay"
+    ],
+    [
+      257.5,
+      269.0,
+      3,
+      "Scope confirmed: v2 saved in MongoDB, clips re-simulated"
+    ],
+    [
+      300.0,
+      315.4,
+      6,
+      "Scene 3: \"the rabbit wakes up and dashes towards the tree\""
+    ],
+    [
+      315.4,
+      324.0,
+      2.5,
+      "A new behavior is composed. Too late: the turtle already won."
+    ],
+    [
+      350.0,
+      356.5,
+      2,
+      "The same gesture on the turtle, with NO words..."
+    ],
+    [
+      356.5,
+      361.0,
+      1,
+      "Fast path: recognized with no LLM call. Nap transfers to the turtle."
+    ],
+    [
+      361.0,
+      372.0,
+      2.5,
+      "Learning curve: the share of commands that need the LLM keeps falling"
+    ],
+    [
+      385.0,
+      401.0,
+      3,
+      "Play story: three scenes, every clip pinned to a behavior version"
+    ]
+  ]
+}

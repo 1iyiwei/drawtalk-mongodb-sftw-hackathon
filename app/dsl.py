@@ -38,6 +38,7 @@ NODE_TYPES = {
     },
     "stay": {"duration": _VAL},
     "turn_to": {"angle": _VAL, "duration": _VAL, "easing": {"type": "string", "enum": EASINGS}},
+    "rotate_by": {"degrees": _VAL, "duration": _VAL, "easing": {"type": "string", "enum": EASINGS}},
     "scale_to": {"sx": _VAL, "sy": _VAL, "duration": _VAL, "easing": {"type": "string", "enum": EASINGS}},
     "fade_to": {"opacity": _VAL, "duration": _VAL},
 }
@@ -200,12 +201,14 @@ def evaluate(node: dict, state: list[float], ctx: Ctx) -> tuple[list[list[float]
             x, y = g.point_at(pts, ease(node["easing"], i / n))
             frames.append([x, y, *state[2:]])
         return frames, []
-    if t in ("turn_to", "scale_to", "fade_to"):
+    if t in ("turn_to", "rotate_by", "scale_to", "fade_to"):
         n = _n_frames(val(node["duration"], ctx, 0.5))
         easing = node.get("easing", "easeInOut")
         end = list(state)
         if t == "turn_to":
             end[2] = val(node["angle"], ctx)
+        elif t == "rotate_by":
+            end[2] = state[2] + val(node["degrees"], ctx, 360)
         elif t == "scale_to":
             sign = -1 if state[3] < 0 else 1
             end[3], end[4] = sign * val(node["sx"], ctx, 1), val(node["sy"], ctx, 1)
@@ -262,9 +265,27 @@ def _apply_mod(m: dict, frames, events, ctx: Ctx):
     return out, events
 
 
+def _first_leaf(node: dict) -> dict:
+    while node["type"] in ("seq", "layer"):
+        node = node["steps"][0] if node["type"] == "seq" else node["base"]
+    return node
+
+
+def _travels(node: dict) -> bool:
+    if node["type"] == "move_along":
+        return True
+    kids = node.get("steps", []) + ([node["base"]] if node["type"] == "layer" else [])
+    return any(_travels(k) for k in kids)
+
+
 def run(program: dict, start: dict, ctx: Ctx) -> dict:
     """Evaluate a behavior program for one actor. Returns frames, events, duration and end state."""
     s = [start["x"], start["y"], start.get("rot", 0.0), start.get("sx", 1.0), start.get("sy", 1.0), start.get("op", 1.0)]
+    # guardrail: a character lying down / tilted gets up before it travels, unless the program sets rotation first
+    tilt = ((s[2] + 180) % 360) - 180
+    if abs(tilt) > 15 and _travels(program) and _first_leaf(program)["type"] not in ("turn_to", "rotate_by"):
+        program = {"type": "seq", "steps": [{"type": "turn_to", "angle": s[2] - tilt, "duration": 0.3, "easing": "easeOut"}, program]}
+        ctx.clamps.append("got up before moving (was tilted)")
     frames, events = evaluate(program, s, ctx)
     max_frames = int(MAX_CLIP_SECONDS * FPS) + 1
     if len(frames) > max_frames:
@@ -291,3 +312,15 @@ def resolve_params(specs: list[dict], given: dict[str, float], ctx_clamps: list[
             v = max(lo, min(hi, v))
         out[s["name"]] = v
     return out
+
+
+def visible_change(out: dict, start: dict) -> dict:
+    """How much a clip visibly does: max displacement, rotation travel, scale/opacity change, glyphs."""
+    fr = out["frames"]
+    x0, y0 = start["x"], start["y"]
+    disp = max(((f[0] - x0) ** 2 + (f[1] - y0) ** 2) ** 0.5 for f in fr)
+    rot = max(f[2] for f in fr) - min(f[2] for f in fr)
+    scale = max(max(abs(abs(f[3]) - 1), abs(f[4] - 1)) for f in fr)
+    op = max(abs(f[5] - 1) for f in fr)
+    return {"move_px": round(disp, 1), "rotate_deg": round(rot, 1), "scale": round(scale, 3), "fade": round(op, 3),
+            "glyphs": len(out["events"]), "visible": disp >= 3 or rot >= 5 or scale >= 0.02 or op >= 0.05 or out["events"]}
