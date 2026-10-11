@@ -22,6 +22,8 @@ main { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 12px; pa
 #canvas { width: 100%; aspect-ratio: 5 / 3; background: #fff; border: 1px solid var(--line); border-radius: 8px; touch-action: none; cursor: crosshair; }
 body.motion #canvas { cursor: cell; }
 body.erase #canvas { cursor: not-allowed; }
+.gesture-stroke { fill: none; stroke: #6a3fc7; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; }
+.gesture-link { stroke: #6a3fc7; stroke-width: 1; stroke-dasharray: 2 4; opacity: .7; }
 .lasso { fill: rgba(179, 38, 30, .06); stroke: #b3261e; stroke-width: 1.5; stroke-dasharray: 5 4; }
 
 .bar { display: flex; gap: 8px; }
@@ -82,3 +84,27 @@ button.mini { float: right; font-size: 11px; padding: 1px 6px; text-transform: n
 .proposal .checks ul { margin: 2px 0 6px; padding-left: 18px; font-size: 13px; }
 .proposal .pbuttons { display: flex; gap: 8px; margin-top: 8px; }
 .proposal button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* learning curve (dataviz reference palette, light mode) */
+.viz-root { --series-1: #2a78d6; --series-2: #eb6834; --grid: #e7e6e1; --text-secondary: #52514e; }
+.tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 8px; }
+.tile { background: #f7f6f2; border-radius: 6px; padding: 6px 8px; }
+.tile .v { font-size: 18px; font-weight: 650; }
+.tile .k { font-size: 11px; color: var(--text-secondary); }
+.curve { position: relative; }
+.curve svg { width: 100%; height: auto; display: block; overflow: visible; }
+.curve .gridline { stroke: var(--grid); stroke-width: 1; }
+.curve .axis { font: 10px sans-serif; fill: var(--text-secondary); }
+.curve .s1 { stroke: var(--series-1); }
+.curve .s2 { stroke: var(--series-2); }
+.curve .line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.curve .dot.fast { fill: #6a3fc7; }
+.curve .dot { fill: #b9b7b0; }
+.curve .lbl { font: 600 11px sans-serif; fill: var(--ink); }
+.curve .xhair { stroke: #9a988f; stroke-width: 1; }
+.curve .tip { position: absolute; pointer-events: none; background: #fff; border: 1px solid var(--line); border-radius: 6px;
+  padding: 4px 8px; font-size: 12px; box-shadow: 0 2px 8px rgba(0,0,0,.08); white-space: nowrap; }
+.legend { display: flex; gap: 12px; font-size: 12px; color: var(--text-secondary); margin: 4px 0; flex-wrap: wrap; }
+.legend i { display: inline-block; width: 14px; height: 2px; vertical-align: middle; margin-right: 4px; }
+#history { margin: 6px 0 0; padding-left: 18px; font-size: 12px; }
+#history li { margin-bottom: 4px; }

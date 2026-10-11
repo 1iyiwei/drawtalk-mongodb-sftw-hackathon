@@ -1,5 +1,6 @@
 """MongoDB access. One async client per process; collections are named in one place."""
 
+import asyncio
 import os
 import secrets
 from datetime import datetime, timezone
@@ -42,10 +43,22 @@ async def ensure_indexes():
     await col("behaviors").create_index([("project_id", 1), ("behavior_id", 1), ("version", -1)], unique=True)
     await col("examples").create_index([("project_id", 1), ("created", -1)])
     await col("events").create_index([("project_id", 1), ("ts", 1)])
+    await col("harness_config").create_index([("project_id", 1), ("version", -1)], unique=True)
 
 
-async def log_event(project_id: str, type_: str, **data) -> str:
-    """Append to the events log (the source of truth for metrics and the why trace)."""
+_background: set = set()
+
+
+async def log_event(project_id: str, type_: str, background: bool = False, **data) -> str:
+    """Append to the events log (the source of truth for metrics and the why trace).
+
+    background=True returns the id immediately and writes without blocking the request."""
     eid = new_id("evt")
-    await col("events").insert_one({"_id": eid, "project_id": project_id, "type": type_, "ts": now(), **data})
+    write = col("events").insert_one({"_id": eid, "project_id": project_id, "type": type_, "ts": now(), **data})
+    if background:
+        task = asyncio.create_task(write)
+        _background.add(task)
+        task.add_done_callback(_background.discard)
+    else:
+        await write
     return eid

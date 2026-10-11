@@ -196,6 +196,8 @@ async def apply(proposal_id: str, scope: str) -> dict:
         if changed:
             await db.col("scenes").update_one({"_id": sc["_id"]}, {"$set": {"timeline": retime(sc["timeline"])}})
 
+    from app.scenes import resolve_project
+    await resolve_project(project_id)  # durations/ends changed: later scenes follow
     await db.col("proposals").update_one({"_id": proposal_id}, {"$set": {"status": f"applied:{scope}"}})
     await db.log_event(project_id, "refine_applied", proposal_id=proposal_id, behavior_id=p["behavior_id"], scope=scope,
                        version=cand["version"] if scope == "behavior" else None, n_upgraded=len(upgraded),

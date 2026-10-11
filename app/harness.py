@@ -5,7 +5,9 @@ import math
 import re
 import time
 
-from app import db, dsl, geometry, llm, refine
+import asyncio
+
+from app import db, dsl, geometry, llm, memory, recognizer, refine
 
 DEFAULT_STATE = {"rot": 0.0, "sx": 1.0, "sy": 1.0, "op": 1.0}
 
@@ -46,10 +48,12 @@ longer than a fast one, not 10x.
 
 actor_traits: 0-3 short adjectives about the character's nature that affect motion (e.g. "quick", "slow",
 "sleepy"), only if implied by the character type or the text.
-path: "stroke" only if a stroke was drawn for this actor; "default" when moving to a target OR in a direction;
+path: "stroke" only if a path stroke was drawn for this actor; "default" when moving to a target OR in a direction;
 "none" for in-place motions.
 direction: when there is no target character but the text gives a direction ("moves right", "jumps up"), set
 left/right/up/down and distance_px (default ~250, "a little" ~100, "far"/"across" ~600); otherwise "none" and null.
+If the text implies continuing ("on", "onward", "through", "past", "keeps going", "continues") with no target,
+use the character's "last moved" direction.
 timing: "together" if the actions happen at the same time ("race", "both", "while", "meanwhile", "together"),
 "in_order" if one after another ("then", "after").
 message: one short sentence describing what will happen, for the user.
@@ -205,37 +209,150 @@ def catalog_text(behaviors: dict[str, dict]) -> str:
 async def accept_pending(project_id: str) -> int:
     """Implicit acceptance: moving on to the next command without undoing a clip accepts it (a hard signal)."""
     pending = [e async for e in db.col("examples").find({"project_id": project_id, "outcome": "pending"},
-                                                          {"behavior_id": 1, "behavior_version": 1})]
+                                                          {"behavior_id": 1, "behavior_version": 1, "route": 1})]
     if not pending:
         return 0
+    from collections import Counter
+    from pymongo import UpdateOne
+
     await db.col("examples").update_many({"_id": {"$in": [e["_id"] for e in pending]}}, {"$set": {"outcome": "accepted"}})
-    for e in pending:
-        await db.col("behaviors").update_one(
-            {"project_id": project_id, "behavior_id": e["behavior_id"], "version": e["behavior_version"]},
-            {"$inc": {"stats.accepted": 1}})
-    await db.log_event(project_id, "examples_accepted", n=len(pending))
+    counts = Counter((e["behavior_id"], e["behavior_version"]) for e in pending)
+    await db.col("behaviors").bulk_write([
+        UpdateOne({"project_id": project_id, "behavior_id": b, "version": v}, {"$inc": {"stats.accepted": n}})
+        for (b, v), n in counts.items()])
+    await db.log_event(project_id, "examples_accepted", n=len(pending), background=True)
+    n_fast = sum(1 for e in pending if e.get("route") == "fast")
+    if n_fast:
+        await memory.count_fast_accepted(project_id, n_fast, [e["_id"] for e in pending])
     return len(pending)
+
+
+def closest_entity(pts: list, entities: dict[str, dict], states: dict[str, dict]) -> str | None:
+    """The character a gesture belongs to: nearest bounding box to the gesture's centroid."""
+    cx, cy = sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts)
+    best, best_d = None, math.inf
+    for eid, e in entities.items():
+        if eid not in states:
+            continue
+        x0, y0, x1, y1 = geometry.entity_world_bbox(e, states[eid])
+        d = math.hypot(max(x0 - cx, 0, cx - x1), max(y0 - cy, 0, cy - y1))
+        if d < best_d:
+            best, best_d = eid, d
+    return best
+
+
+def _fast_decision(actor, target, path_kind, bid, ex, message):
+    action = {
+        "actor": actor, "target": target, "path": path_kind, "direction": "none", "distance_px": None,
+        "decision": "apply", "behavior_id": bid, "new_behavior": None, "actor_traits": [],
+        "param_values": [{"name": k, "value": v, "source": f"learned: example {ex['_id'][-4:]} ({ex['actor_name']})"}
+                         for k, v in ex["params"].items()],
+    }
+    return {"intent": "animate", "actions": [action], "timing": "in_order", "refine": None, "message": message}
+
+
+async def fast_match(project_id: str, gesture: dict | None, path: dict | None, by_name: dict) -> dict:
+    """Text-free commands, decided without the LLM when the evidence is clear.
+
+    - gesture (± path): the gesture's SHAPE says how ($P against taught gestures); the path says where.
+    - path alone: the path is only the trajectory; HOW comes from the character's learned habit.
+    Thresholds come from the versioned harness_config, which the harness tunes from feedback."""
+    cfg = (await memory.get_config(project_id))["fast_path"]
+    info: dict = {"threshold": cfg["min_score"], "min_examples": cfg["min_examples"], "candidates": []}
+
+    if gesture:
+        actor = gesture["actor"]
+        best: dict[str, dict] = {}
+        async for ex in db.col("examples").find(
+            {"project_id": project_id, "outcome": "accepted", "gesture_template": {"$ne": None}},
+            {"gesture_template": 1, "behavior_id": 1, "actor_name": 1, "params": 1},
+        ):
+            sim = recognizer.similarity(gesture["template"], [tuple(p) for p in ex["gesture_template"]])
+            cur = best.setdefault(ex["behavior_id"], {"score": 0.0, "support": 0, "example": None})
+            cur["support"] += sim >= cfg["min_score"]
+            if sim + (0.02 if ex["actor_name"] == actor else 0) > cur["score"]:
+                cur.update(score=sim + (0.02 if ex["actor_name"] == actor else 0), example=ex)
+        cands = sorted(best.items(), key=lambda kv: -kv[1]["score"])
+        info.update(kind="gesture", actor=actor, candidates=[
+            {"behavior": b, "score": round(v["score"], 3), "support": v["support"]} for b, v in cands[:4]])
+        runner = cands[1][1]["score"] if len(cands) > 1 else 0.0
+        if not cands or cands[0][1]["score"] < cfg["min_score"] or cands[0][1]["score"] - runner < 0.03:
+            return {**info, "decision": None, "unknown_gesture": True, "reason": "gesture not recognized"}
+        bid, top = cands[0]
+        on_path = path and path.get("starts_on") == actor
+        decision = _fast_decision(actor, path.get("ends_on") if on_path else None, "stroke" if on_path else "none", bid,
+                                  top["example"], f"{actor} → {bid} (recognized your gesture)")
+        return {**info, "decision": decision, "behavior_id": bid, "score": round(top["score"], 3),
+                "support": top["support"], "reason": "gesture recognized"}
+
+    actor = path.get("starts_on")
+    if not actor or actor not in by_name:
+        return {**info, "kind": "path", "decision": None, "reason": "the path does not start on a character"}
+    habits: dict[str, dict] = {}
+    async for ex in db.col("examples").find(
+        {"project_id": project_id, "outcome": "accepted", "actor_name": actor, "stroke_template": {"$ne": None}},
+        {"behavior_id": 1, "actor_name": 1, "params": 1, "target_name": 1},
+    ).sort("created", -1).limit(20):
+        h = habits.setdefault(ex["behavior_id"], {"count": 0, "example": ex})
+        h["count"] += 1
+    total = sum(h["count"] for h in habits.values())
+    cands = sorted(habits.items(), key=lambda kv: -kv[1]["count"])
+    info.update(kind="path", actor=actor, candidates=[
+        {"behavior": b, "score": round(h["count"] / total, 2), "support": h["count"]} for b, h in cands[:4]])
+    if not cands:
+        return {**info, "decision": None, "reason": f"no path habits for {actor} yet"}
+    bid, top = cands[0]
+    share = top["count"] / total
+    if top["count"] < cfg["min_examples"] or share < cfg["min_score"]:
+        return {**info, "decision": None, "reason": f"{actor}'s habit is not clear yet"}
+    decision = _fast_decision(actor, path.get("ends_on") if path.get("ends_on") != actor else None, "stroke", bid,
+                              top["example"], f"{actor} → {bid} along your path (learned habit)")
+    return {**info, "decision": decision, "behavior_id": bid, "score": round(share, 2), "support": top["count"],
+            "reason": f"{actor} usually does {bid} along paths"}
 
 
 # ---------------------------------------------------------------- command
 
 
-async def run_command(project_id: str, scene_id: str, text: str, stroke: list | None) -> dict:
+async def run_command(project_id: str, scene_id: str, text: str, stroke: list | None, gesture: list | None = None) -> dict:
     t0 = time.time()
-    scene = await db.col("scenes").find_one({"_id": scene_id, "project_id": project_id})
+    timings: dict[str, int] = {}
+
+    def mark(name):
+        timings[name] = round((time.time() - t0) * 1000)
+
+    async def load_entities():
+        return {e["_id"]: e async for e in db.col("entities").find({"project_id": project_id})}
+
+    scene, entities, behaviors, _ = await asyncio.gather(
+        db.col("scenes").find_one({"_id": scene_id, "project_id": project_id}), load_entities(),
+        latest_behaviors(project_id), accept_pending(project_id))
     if not scene:
         raise ValueError("scene not found")
-    entities = {e["_id"]: e async for e in db.col("entities").find({"project_id": project_id})}
     states = current_states(scene)
     in_scene = {eid: e for eid, e in entities.items() if eid in states}
     by_name = {e["name"]: eid for eid, e in in_scene.items()}
-    behaviors = await latest_behaviors(project_id)
-    await accept_pending(project_id)
+    mark("loaded")
 
     summary = stroke_summary(stroke, in_scene, states) if stroke and len(stroke) > 1 else None
+    earlier = [c async for sc in db.col("scenes").find(
+        {"project_id": project_id, "order": {"$lt": scene.get("order", 0)}}, {"timeline.actor": 1, "timeline.path": 1,
+                                                                              "timeline.start": 1, "order": 1}).sort("order", -1)
+               for c in sorted(sc.get("timeline", []), key=lambda c: -c["start"])]
+
+    def heading(eid):
+        for c in sorted(scene.get("timeline", []), key=lambda c: -c["start"]) + earlier:
+            pts = c["path"]["points"]
+            if c["actor"] == eid and len(pts) > 1:
+                dx, dy = pts[-1][0] - pts[0][0], pts[-1][1] - pts[0][1]
+                if abs(dx) + abs(dy) > 5:
+                    return ("right" if dx > 0 else "left") if abs(dx) >= abs(dy) else ("down" if dy > 0 else "up")
+        return None
+
     chars = "\n".join(
         f"- {e['name']}: at ({states[eid]['x']:.0f},{states[eid]['y']:.0f}), size {e['bbox'][2]-e['bbox'][0]:.0f}x{e['bbox'][3]-e['bbox'][1]:.0f}"
         + (f", traits: {', '.join(e.get('traits', []))}" if e.get("traits") else "")
+        + (f", last moved {heading(eid)}" if heading(eid) else "")
         for eid, e in in_scene.items()
     )
     recent = "\n".join(
@@ -248,19 +365,56 @@ async def run_command(project_id: str, scene_id: str, text: str, stroke: list | 
         f"Clips so far in this scene (latest last; a refinement usually targets the latest clip's behavior):\n{recent or '(none)'}\n\n"
         f"Behavior catalog:\n{catalog_text(behaviors)}\n\n"
         f"Command text: {text!r}\n"
-        f"Stroke: {summary if summary else 'none'}"
+        f"Path stroke: {summary if summary else 'none'}"
     )
-    decision, meta = llm.structured(SYSTEM, user, "motion_decision", decision_schema(list(by_name)))
+    route_info: dict = {}
+    template = recognizer.normalize([(p[0], p[1]) for p in stroke]) if summary else None
+    g_info = None
+    if gesture and len(gesture) > 1:
+        g_actor = closest_entity(gesture, in_scene, states)
+        if g_actor:
+            g_info = {"actor": in_scene[g_actor]["name"], "template": recognizer.normalize([(p[0], p[1]) for p in gesture]),
+                      "size_px": round(geometry.polyline_length([(p[0], p[1]) for p in gesture]))}
+            user += (f"\nGesture: a small symbol drawn on/near {g_info['actor']} (a drawn word). When text is present, "
+                     f"the text says what the gesture means; apply that behavior to {g_info['actor']}.")
+    async def none():
+        return None
+
+    fast, retrieved = await asyncio.gather(
+        fast_match(project_id, g_info, summary, by_name) if ((g_info or summary) and not text) else none(),
+        memory.similar_examples(project_id, text) if text else none())
+    retrieved = retrieved or []
+    mark("routed")
+    if retrieved:
+        user += "\n\nSimilar past commands (from vector memory; reuse their behaviors when they fit):\n" + "\n".join(
+            f"- {r['text']!r}: {r['actor_name']} → {r['behavior_id']} v{r['behavior_version']} params {r['params']} "
+            f"(similarity {r['score']:.2f})" for r in retrieved)
+    if fast and fast.get("unknown_gesture"):
+        msg = (f"I don't know this gesture yet. Draw it again with a few words (e.g. “{g_info['actor']} naps”) "
+               f"to teach me what it means.")
+        trace = {"route": "ask", "fast_match": {k: v for k, v in fast.items() if k != "decision"}, "steps": [msg],
+                 "total_ms": round((time.time() - t0) * 1000)}
+        await db.log_event(project_id, "gesture_unknown", scene_id=scene_id, background=True)
+        return {"message": msg, "clips": [], "written": [], "trace": trace, "event_id": None}
+    if fast and fast["decision"]:
+        decision, meta, route = fast["decision"], None, "fast"
+    else:
+        decision, meta = await asyncio.to_thread(llm.structured, SYSTEM, user, "motion_decision", decision_schema(list(by_name)))
+        route = "llm"
+        mark("llm")
+    route_info = {"route": route, "fast_match": fast and {k: v for k, v in fast.items() if k != "decision"},
+                  "retrieved": [{"text": r["text"], "behavior": r["behavior_id"], "score": round(r["score"], 3)} for r in retrieved]}
     cmd_event = await db.log_event(
-        project_id, "command", scene_id=scene_id, text=text, has_stroke=bool(summary), route="llm", llm=meta,
+        project_id, "command", scene_id=scene_id, text=text, has_stroke=bool(summary), route=route, llm=meta,
         intent=decision["intent"], n_actions=len(decision["actions"]),
+        latency_ms=round((time.time() - t0) * 1000), background=True,
     )
 
     if decision["intent"] == "refine" and decision["refine"]:
         r = decision["refine"]
         r["behavior_id"] = normalize_id(r["behavior_id"])
         current = behaviors.get(r["behavior_id"])
-        trace = {"llm": meta, "decision": decision, "steps": [], "route": "llm"}
+        trace = {"llm": meta, "decision": decision, "steps": [], **route_info}
         if not current:
             trace["steps"].append(f"refine target {r['behavior_id']!r} not in the library")
             return {"message": f"I couldn't find a behavior called {r['behavior_id']!r} to change.", "clips": [],
@@ -280,8 +434,12 @@ async def run_command(project_id: str, scene_id: str, text: str, stroke: list | 
                 "written": [{"collection": "proposals", "id": prop["_id"], "what": "pending refinement"}],
                 "trace": trace, "event_id": cmd_event}
 
-    clips, written, trace = [], [], {"llm": meta, "stroke": summary, "decision": decision, "steps": []}
+    clips, written, trace = [], [], {"llm": meta, "stroke": summary, "decision": decision, "steps": [], **route_info}
+    if route == "fast":
+        trace["steps"].append(f"⚡ fast path ({fast['kind']}): {fast['reason']} → {fast['behavior_id']} "
+                              f"(score {fast['score']}, {fast['support']} example(s)), no LLM call")
     prev_start = None
+    writes = []
     cursor = scene_end_time(scene)
     for a in decision["actions"]:
         actor_id = by_name.get(a["actor"])
@@ -351,33 +509,43 @@ async def run_command(project_id: str, scene_id: str, text: str, stroke: list | 
             "params": params, "param_sources": sources, "start": clip_start,
             "duration": result["duration"], "end_state": result["end_state"],
             "frames": result["frames"], "events": result["events"], "example_id": example_id, "text": text,
+            "route": route,
         }
         clips.append(clip)
         cursor = max(cursor, clip_start + result["duration"])
         states[actor_id] = result["end_state"]
 
-        await db.col("examples").insert_one({
+        writes.append(db.col("examples").insert_one({
             "_id": example_id, "project_id": project_id, "scene_id": scene_id, "clip_id": clip["clip_id"],
             "text": text, "stroke": summary, "actor_name": actor["name"],
             "target_name": in_scene[target_id]["name"] if target_id else None,
             "behavior_id": b["behavior_id"], "behavior_version": b["version"], "params": params,
-            "param_sources": sources, "outcome": "pending", "route": "llm", "command_event": cmd_event,
+            "param_sources": sources, "outcome": "pending", "route": route, "command_event": cmd_event,
+            "stroke_template": template if a["path"] == "stroke" else None,
+            "gesture_template": g_info["template"] if g_info and g_info["actor"] == actor["name"] else None,
             "created": db.now(),
-        })
+        }))
+        if text:
+            asyncio.create_task(memory.store_example_vector(example_id, text))
+        if g_info and g_info["actor"] == actor["name"] and text:
+            trace["steps"].append(f"✳️ learned gesture: this shape now means {b['behavior_id']} (draw it alone next time)")
         written.append({"collection": "examples", "id": example_id, "what": f"{actor['name']} → {b['behavior_id']}"})
-        await db.col("behaviors").update_one({"_id": b["_id"]}, {"$inc": {"stats.uses": 1}})
+        writes.append(db.col("behaviors").update_one({"_id": b["_id"]}, {"$inc": {"stats.uses": 1}}))
 
         new_traits = [t for t in a["actor_traits"] if t not in actor.get("traits", [])]
         if new_traits:
-            await db.col("entities").update_one({"_id": actor_id}, {"$addToSet": {"traits": {"$each": new_traits}}})
+            writes.append(db.col("entities").update_one({"_id": actor_id}, {"$addToSet": {"traits": {"$each": new_traits}}}))
             actor.setdefault("traits", []).extend(new_traits)
             written.append({"collection": "entities", "id": actor_id, "what": f"{actor['name']} traits += {', '.join(new_traits)}"})
         if clamps:
-            await db.log_event(project_id, "clamp", behavior_id=b["behavior_id"], clamps=clamps, command=cmd_event)
+            await db.log_event(project_id, "clamp", behavior_id=b["behavior_id"], clamps=clamps, command=cmd_event, background=True)
             trace["steps"].append("guardrail: " + "; ".join(clamps))
 
     if clips:
-        await db.col("scenes").update_one({"_id": scene_id}, {"$push": {"timeline": {"$each": clips}}})
+        writes.append(db.col("scenes").update_one({"_id": scene_id}, {"$push": {"timeline": {"$each": clips}}}))
         written.append({"collection": "scenes", "id": scene_id, "what": f"+{len(clips)} clip(s)"})
+    await asyncio.gather(*writes)
+    mark("saved")
+    trace["timings_ms"] = timings
     trace["total_ms"] = round((time.time() - t0) * 1000)
     return {"message": decision["message"], "clips": clips, "written": written, "trace": trace, "event_id": cmd_event}

@@ -7,12 +7,13 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from app import db, geometry, harness, refine
+from app import db, geometry, harness, memory, refine, scenes as scene_logic
 
 
 @asynccontextmanager
 async def lifespan(_app):
     await db.ensure_indexes()
+    await memory.ensure_vector_index()
     yield
 
 
@@ -35,7 +36,8 @@ async def _project(name: str) -> dict:
         p = {"_id": db.new_id("prj"), "name": name, "created": db.now()}
         await db.col("projects").insert_one(p)
         await db.col("scenes").insert_one(
-            {"_id": db.new_id("scn"), "project_id": p["_id"], "order": 0, "title": "Scene 1", "start_state": {}, "timeline": []}
+            {"_id": db.new_id("scn"), "project_id": p["_id"], "order": 0, "title": "Scene 1", "start_state": {},
+             "added": {}, "removed": [], "timeline": []}
         )
         await db.log_event(p["_id"], "project_created")
     return p
@@ -45,7 +47,7 @@ async def _project(name: str) -> dict:
 async def state(project: str = "rehearsal"):
     p = await _project(project)
     pid = p["_id"]
-    scenes = [s async for s in db.col("scenes").find({"project_id": pid}).sort("order", 1)]
+    scenes = await scene_logic.resolve_project(pid)
     entities = [_clean(e) async for e in db.col("entities").find({"project_id": pid})]
     behaviors = [_clean(b) for b in (await harness.latest_behaviors(pid)).values()]
     return {"project": _clean(p), "scenes": scenes, "entities": entities, "behaviors": behaviors}
@@ -73,10 +75,12 @@ async def create_entity(body: EntityIn):
         "bbox": [x0 - cx, y0 - cy, x1 - cx, y1 - cy], "traits": [], "created": db.now(),
     }
     await db.col("entities").insert_one(ent)
+    await scene_logic.resolve_project(body.project_id)  # make sure `added` exists (migrates old scenes)
     await db.col("scenes").update_one(
-        {"_id": body.scene_id}, {"$set": {f"start_state.{eid}": {"x": cx, "y": cy, **harness.DEFAULT_STATE}}}
+        {"_id": body.scene_id}, {"$set": {f"added.{eid}": {"x": cx, "y": cy, **harness.DEFAULT_STATE}}}
     )
-    await db.log_event(body.project_id, "entity_created", entity_id=eid, n_strokes=len(body.strokes))
+    await scene_logic.resolve_project(body.project_id)
+    await db.log_event(body.project_id, "entity_created", entity_id=eid, n_strokes=len(body.strokes), background=True)
     return {"entity": _clean(ent), "state": {"x": cx, "y": cy, **harness.DEFAULT_STATE}}
 
 
@@ -85,14 +89,18 @@ class CommandIn(BaseModel):
     scene_id: str
     text: str = ""
     stroke: list[list[float]] | None = None
+    gesture: list[list[float]] | None = None
 
 
 @app.post("/api/command")
 async def command(body: CommandIn):
-    if not body.text.strip() and not body.stroke:
+    if not body.text.strip() and not body.stroke and not body.gesture:
         raise HTTPException(400, "empty command")
     try:
-        return await harness.run_command(body.project_id, body.scene_id, body.text.strip(), body.stroke)
+        res = await harness.run_command(body.project_id, body.scene_id, body.text.strip(), body.stroke, body.gesture)
+        if res["clips"]:
+            await scene_logic.resolve_project(body.project_id)  # later scenes start where this one now ends
+        return res
     except ValueError as e:
         raise HTTPException(404, str(e))
 
@@ -105,12 +113,14 @@ class SceneIn(BaseModel):
 async def new_scene(body: SceneIn):
     """New scene continues from the previous scene's end state (continuity default)."""
     last = await db.col("scenes").find_one({"project_id": body.project_id}, sort=[("order", -1)])
-    start = harness.current_states(last) if last else {}
     order = (last["order"] + 1) if last else 0
     scene = {"_id": db.new_id("scn"), "project_id": body.project_id, "order": order, "title": f"Scene {order + 1}",
-             "start_state": start, "timeline": [], "continued_from": last["_id"] if last else None}
+             "start_state": {}, "added": {}, "removed": [], "timeline": [], "continued_from": last["_id"] if last else None}
     await db.col("scenes").insert_one(scene)
-    await db.log_event(body.project_id, "scene_created", scene_id=scene["_id"], n_carried=len(start))
+    resolved = await scene_logic.resolve_project(body.project_id)
+    scene = next(s for s in resolved if s["_id"] == scene["_id"])
+    await db.log_event(body.project_id, "scene_created", scene_id=scene["_id"], n_carried=len(scene["start_state"]),
+                       background=True)
     return scene
 
 
@@ -135,6 +145,9 @@ async def delete_clip(body: ClipDeleteIn):
     )
     await db.log_event(body.project_id, "clip_deleted", scene_id=body.scene_id, clip_id=body.clip_id,
                        behavior_id=clip["behavior_id"], example_id=clip["example_id"])
+    if clip.get("route") == "fast":
+        await memory.penalize_fast_guess(body.project_id, clip["example_id"], clip["behavior_id"])
+    await scene_logic.resolve_project(body.project_id, dirty={body.scene_id})
     return {"ok": True}
 
 
@@ -150,20 +163,26 @@ async def clear_scene(body: SceneOpIn):
     r = await db.col("scenes").update_one({"_id": body.scene_id, "project_id": body.project_id}, {"$set": {"timeline": []}})
     if not r.matched_count:
         raise HTTPException(404, "scene not found")
-    await db.log_event(body.project_id, "scene_cleared", scene_id=body.scene_id)
+    await db.log_event(body.project_id, "scene_cleared", scene_id=body.scene_id, background=True)
+    await scene_logic.resolve_project(body.project_id, dirty={body.scene_id})
     return {"ok": True}
 
 
 @app.post("/api/scenes/remove-entity")
 async def remove_entity(body: SceneOpIn):
     """Take a character out of a scene, with the clips that move it. The entity doc is kept (history)."""
-    r = await db.col("scenes").update_one(
-        {"_id": body.scene_id, "project_id": body.project_id},
-        {"$unset": {f"start_state.{body.entity_id}": ""}, "$pull": {"timeline": {"actor": body.entity_id}}},
-    )
-    if not r.matched_count:
+    await scene_logic.resolve_project(body.project_id)
+    sc = await db.col("scenes").find_one({"_id": body.scene_id, "project_id": body.project_id})
+    if not sc:
         raise HTTPException(404, "scene not found")
-    await db.log_event(body.project_id, "entity_removed", scene_id=body.scene_id, entity_id=body.entity_id)
+    update = {"$pull": {"timeline": {"actor": body.entity_id}}}
+    if body.entity_id in sc.get("added", {}):
+        update["$unset"] = {f"added.{body.entity_id}": ""}  # introduced here: un-introduce it
+    else:
+        update["$addToSet"] = {"removed": body.entity_id}  # carried in from earlier: remove from here on
+    await db.col("scenes").update_one({"_id": body.scene_id}, update)
+    await scene_logic.resolve_project(body.project_id, dirty={body.scene_id})
+    await db.log_event(body.project_id, "entity_removed", scene_id=body.scene_id, entity_id=body.entity_id, background=True)
     return {"ok": True}
 
 
@@ -202,3 +221,52 @@ async def refine_confirm(body: RefineIn):
         return await refine.apply(body.proposal_id, body.scope)
     except ValueError as e:
         raise HTTPException(404, str(e))
+
+
+@app.get("/api/config")
+async def config(project_id: str):
+    cur = await memory.get_config(project_id)
+    history = [ _clean(d) async for d in db.col("harness_config").find({"project_id": project_id}).sort("version", 1)]
+    return {"current": _clean(cur) if "_id" in cur else cur, "history": history}
+
+
+@app.get("/api/metrics")
+async def metrics(project_id: str, window: int = 5):
+    """Learning curve from hard signals: per command, did it need the LLM, and was its result undone?"""
+    cmds = [e async for e in db.col("events").find({"project_id": project_id, "type": "command"}).sort("ts", 1)]
+    outcomes: dict[str, list[str]] = {}
+    async for ex in db.col("examples").find({"project_id": project_id}, {"command_event": 1, "outcome": 1}):
+        outcomes.setdefault(ex.get("command_event"), []).append(ex["outcome"])
+    points = []
+    for i, c in enumerate(cmds):
+        lo = max(0, i - window + 1)
+        win = cmds[lo:i + 1]
+        outs = [o for w in win for o in outcomes.get(w["_id"], [])]
+        points.append({
+            "i": i + 1, "text": c.get("text") or ("(gesture/path)" if c.get("has_stroke") else ""),
+            "route": c.get("route"), "intent": c.get("intent"), "latency_ms": c.get("latency_ms"),
+            "llm_share": sum(w.get("route") == "llm" for w in win) / len(win),
+            "correction_share": (sum(o == "undone" for o in outs) / len(outs)) if outs else 0.0,
+        })
+    history = []
+    async for b in db.col("behaviors").find({"project_id": project_id}, {"behavior_id": 1, "version": 1, "reason": 1,
+                                                                          "change_summary": 1, "created": 1}):
+        history.append({"ts": b["created"], "kind": "behavior", "what": f"{b['behavior_id']} v{b['version']}",
+                        "why": b.get("change_summary") or b.get("reason")})
+    async for c in db.col("harness_config").find({"project_id": project_id}):
+        history.append({"ts": c["created"], "kind": "routing", "what": f"routing v{c['version']} (threshold {c['fast_path']['min_score']})",
+                        "why": c.get("reason")})
+    history.sort(key=lambda h: h["ts"], reverse=True)
+    lat = [p["latency_ms"] for p in points if p["latency_ms"] is not None]
+    return {
+        "points": points, "window": window,
+        "history": [{**h, "ts": h["ts"].isoformat()} for h in history[:30]],
+        "summary": {
+            "commands": len(points),
+            "no_llm": sum(p["route"] in ("fast", "ask") for p in points),
+            "latency_first": round(sum(lat[:5]) / len(lat[:5])) if lat else None,
+            "latency_last": round(sum(lat[-5:]) / len(lat[-5:])) if lat else None,
+            "behaviors": len({h["what"].split(" v")[0] for h in history if h["kind"] == "behavior"}),
+            "versions": sum(h["kind"] == "behavior" for h in history),
+        },
+    }

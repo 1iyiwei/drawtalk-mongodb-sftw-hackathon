@@ -13,6 +13,7 @@
     <div class="modes" role="group" aria-label="Pen mode">
       <button id="mode-ink" class="on" title="Draw characters (I)">✏️ Ink</button>
       <button id="mode-motion" title="Draw a path for a character to follow (P)">➰ Path</button>
+      <button id="mode-gesture" title="Draw a gesture on a character: a drawn word for a behavior (G)">✳️ Gesture</button>
       <button id="mode-erase" title="Lasso to erase (E)">🧽 Erase</button>
     </div>
     <span id="status" class="status"></span>
@@ -37,7 +38,7 @@
       <div id="proposal" class="proposal" hidden></div>
 
       <form id="command-form" class="bar command">
-        <input id="command-input" placeholder="Say what happens, e.g. “the hare and the tortoise race to the tree”" autocomplete="off">
+        <input id="command-input" placeholder="Say what happens (with a path or gesture, or alone), e.g. “the hare and the tortoise race to the tree”" autocomplete="off">
         <button type="submit" id="send">Animate ▶</button>
       </form>
 
@@ -61,6 +62,12 @@
       <section>
         <h2>Why <small>(last command)</small></h2>
         <div id="trace" class="trace muted">Nothing yet.</div>
+      </section>
+      <section class="viz-root">
+        <h2>Harness learning</h2>
+        <div id="tiles" class="tiles"></div>
+        <div id="curve" class="curve"></div>
+        <details id="history-box"><summary>History: what the harness changed about itself</summary><ol id="history"></ol></details>
       </section>
       <section>
         <h2>Behavior library</h2>
