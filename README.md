@@ -15,6 +15,7 @@ vocabulary into fast, deterministic tools** that don't need an LLM call.
 - **Long Horizon Engineering**: multi-scene stories stay coherent while you edit them. Characters keep
   learned traits and habits, scenes derive their start from the previous scene and re-simulate when it
   changes, behavior versions are pinned per clip, and a learning curve tracks hard signals.
+- **Demo video (1 min):** https://www.youtube.com/watch?v=-H8eB0-2pQw
 - Docs: [design](prep/design.md) · [motion DSL](prep/motion-dsl.md) · [demo script](prep/storyboard.md)
   · [judging notes](prep/judging.md) · [build plan](prep/plan.md) · [early brainstorm](prep/gemini.md)
 

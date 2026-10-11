@@ -1,0 +1,144 @@
+{
+  "input": "demos/demo-4.mp4",
+  "output": "demos/demo-4-short.mp4",
+  "crop": [
+    2746,
+    1494,
+    112,
+    246
+  ],
+  "width": 1920,
+  "title": [
+    "DrawTalk Harness",
+    "Local and global edits to behaviors it learned",
+    "Built today · MongoDB Atlas + Vector Search · no preset motions"
+  ],
+  "end": [
+    "Every change it makes to itself is a MongoDB document",
+    "versioned · retrievable · regression-tested",
+    "github.com/1iyiwei/drawtalk-mongodb-sftw-hackathon"
+  ],
+  "segments": [
+    [
+      5.0,
+      76.0,
+      20,
+      "Characters are drawn as vector ink. The behavior library starts EMPTY."
+    ],
+    [
+      76.0,
+      86.0,
+      5,
+      "\"the rabbit and the turtle race towards the rock\""
+    ],
+    [
+      86.0,
+      91.2,
+      4,
+      "The LLM writes two NEW behaviors: dash (rabbit) and plod (turtle)"
+    ],
+    [
+      91.2,
+      94.5,
+      1,
+      "Speed comes from each character's nature: quick rabbit, slow turtle"
+    ],
+    [
+      100.0,
+      115.5,
+      8,
+      "GLOBAL edit: \"the turtle should move more slowly\""
+    ],
+    [
+      115.5,
+      119.5,
+      4,
+      "The harness proposes plod v2: a diff plus a regression replay of every clip"
+    ],
+    [
+      119.5,
+      128.0,
+      3,
+      "Its scope guess is shown and overridable: \"All\" saves plod v2 everywhere"
+    ],
+    [
+      137.0,
+      159.5,
+      10,
+      "Scene 2 continues from scene 1. A gesture + \"the rabbit sleeps\"..."
+    ],
+    [
+      159.5,
+      167.0,
+      3,
+      "...teaches nap and saves the gesture as a drawn word"
+    ],
+    [
+      167.0,
+      176.9,
+      4,
+      "A drawn path: \"while the turtle plods through towards the tree\""
+    ],
+    [
+      176.9,
+      186.0,
+      3,
+      "plod v2 is reused along the path, in parallel with the nap"
+    ],
+    [
+      195.0,
+      216.2,
+      10,
+      "LOCAL edit: \"the turtle should move faster this time\""
+    ],
+    [
+      216.2,
+      226.0,
+      3,
+      "\"Only this time\": one clip changes, plod v2 stays as it is"
+    ],
+    [
+      240.0,
+      270.9,
+      12,
+      "Scene 3: \"the rabbit wakes up and dashes towards the tree\""
+    ],
+    [
+      270.9,
+      277.6,
+      4,
+      "A new behavior is composed; a guardrail makes the rabbit get up first"
+    ],
+    [
+      277.6,
+      284.0,
+      2,
+      "Too late: the turtle already won"
+    ],
+    [
+      284.0,
+      293.0,
+      3,
+      "Scene 4: the same gesture on the turtle, with NO words..."
+    ],
+    [
+      293.0,
+      299.0,
+      1,
+      "Fast path: recognized in 98 ms with no LLM call. Nap transfers to the turtle."
+    ],
+    [
+      299.0,
+      318.0,
+      6,
+      "Harness learning: the LLM share falls; every self-change is listed with its reason"
+    ],
+    [
+      318.0,
+      338.0,
+      5,
+      "Play story: every clip is pinned to a behavior version"
+    ]
+  ],
+  "audio": "music"
+}

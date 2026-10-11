@@ -9,7 +9,8 @@ cuts.json:
   "width": 1920,                    # output width; height follows the crop aspect (+ caption bar)
   "title": ["line 1", "line 2"],   # optional title card (3 s)
   "end": ["line 1", "line 2"],     # optional end card (3 s)
-  "segments": [[start_s, end_s, speed, "caption"], ...]
+  "segments": [[start_s, end_s, speed, "caption"], ...],
+  "audio": "music"                  # optional: replace narration with a generated ambient pad
 }
 Speed > 1 fast-forwards (e.g. LLM waits); the caption says so when speed >= 2.
 """
@@ -51,6 +52,23 @@ def card_png(lines: list[str], width: int, height: int, path: Path):
         d.text((width // 2, y + i * 90), line, font=font(64 if i == 0 else 40, bold=i == 0),
                fill=(29, 29, 31) if i == 0 else (90, 90, 96), anchor="mm")
     img.save(path)
+
+
+def make_pad(duration: float, path: Path):
+    """Soft ambient pad: slow sine chords (Cmaj7 → Am7 → Fmaj7 → G6), gentle swell, fade in/out. Self-made audio."""
+    chords = [[130.81, 196.00, 246.94, 329.63], [110.00, 164.81, 196.00, 261.63],
+              [87.31, 130.81, 174.61, 220.00], [98.00, 146.83, 196.00, 246.94]]
+    bar = 8.0
+    terms = []
+    for k, chord in enumerate(chords):
+        on = f"(gte(mod(t,{bar * 4}),{k * bar})*lt(mod(t,{bar * 4}),{(k + 1) * bar}))"
+        env = f"sin(PI*mod(t,{bar})/{bar})"  # each chord swells in and out
+        for f in chord:
+            terms.append(f"{on}*{env}*sin(2*PI*{f}*t)")
+    expr = "0.11*(" + "+".join(terms) + ")*(1+0.15*sin(2*PI*0.2*t))"
+    run(["ffmpeg", "-y", "-f", "lavfi", "-i", f"aevalsrc='{expr}':s=48000:d={duration:.2f}",
+         "-af", f"lowpass=f=1800,aecho=0.8:0.7:220:0.25,afade=t=in:d=2,afade=t=out:st={max(0, duration - 3):.2f}:d=3,"
+                "pan=stereo|c0=c0|c1=c0", str(path)])
 
 
 def atempo(speed: float) -> str:
@@ -100,7 +118,17 @@ def main(cuts_path: str):
         card(cfg["end"], "end")
     lst = tmp / "list.txt"
     lst.write_text("".join(f"file '{p}'\n" for p in parts))
-    run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(lst), "-c", "copy", cfg["output"]])
+    joined = tmp / "joined.mp4"
+    run(["ffmpeg", "-y", "-f", "concat", "-safe", "0", "-i", str(lst), "-c", "copy", str(joined)])
+    if cfg.get("audio") == "music":  # replace narration with a generated ambient pad (no third-party assets)
+        dur = float(subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0",
+                                    str(joined)], capture_output=True, text=True).stdout)
+        pad = tmp / "pad.wav"
+        make_pad(dur, pad)
+        run(["ffmpeg", "-y", "-i", str(joined), "-i", str(pad), "-map", "0:v", "-map", "1:a", "-c:v", "copy",
+             "-c:a", "aac", "-b:a", "160k", "-shortest", cfg["output"]])
+    else:
+        joined.replace(cfg["output"])
     dur = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", cfg["output"]],
                          capture_output=True, text=True).stdout.strip()
     print(f"wrote {cfg['output']} ({float(dur):.1f} s, {len(cfg['segments'])} segments)")
