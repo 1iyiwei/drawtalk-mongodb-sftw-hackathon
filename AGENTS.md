@@ -36,6 +36,9 @@ the current schedule and status.
   `queryable` before querying.
 - Voyage `voyage-4-lite` → 1024-d vectors.
 - ElevenLabs: `POST /v1/speech-to-text` with `model_id=scribe_v2`. The key is restricted to Speech to Text.
+  **At the venue (Oct 11) free-tier access was blocked (HTTP 401 "unusual activity", likely the shared IP)**, so voice
+  input uses the browser Web Speech API or typing.
+- Venue Wi-Fi (SHACK15) sends traffic out through two IPs (`12.94.170.82`, `4.78.254.114`); both are on the Atlas access list.
 - OpenAI `gpt-5.4-mini` supports JSON mode / Structured Outputs.
 - Anthropic: the key works but the account has no credit, so OpenAI is the default.
 - Atlas Agent Engine: the CLI download from agentengine.mongodb.com kept failing partway through
