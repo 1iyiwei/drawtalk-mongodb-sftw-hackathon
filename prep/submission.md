@@ -6,15 +6,19 @@ DrawTalk Harness
 
 ## Project Description
 
-An animation tool that learns your language. You sketch 2D characters, then animate them by typing ("the rabbit and the turtle race to the rock"), drawing a path, or drawing a gesture. There is no preset motion library: an LLM composes each new verb (dash, plod, nap, spin) from a small motion DSL, and the harness stores it as a versioned, tested tool in MongoDB.
+**The problem:** agents interpret ambiguous human input (a sketch, a phrase, a gesture) with an expensive LLM call every time, and they never become *yours*. **DrawTalk Harness compiles a user's personal vocabulary into versioned, tested tools.** Each correction makes it faster, cheaper and more predictable, and it can't silently break what you already approved. Animation is our testbed because you can *see* it learning. The same pattern applies to design tools, robot and drone commands, voice assistants, and enterprise workflows where people keep teaching the same shorthand.
 
-The harness improves itself (Recursive Harnessing):
+**What it does:** you sketch 2D characters, then animate them by typing ("the rabbit and the turtle race to the rock"), drawing a path, or drawing a gesture. There is no preset motion library: an LLM composes each new verb (dash, plod, nap, spin) from a small motion DSL, and the harness stores it as a versioned, tested tool in MongoDB.
+
+**From today's sessions** (77 commands across our demo stories): an LLM-routed command takes a median 3.6 s and ~3,500 tokens; once a gesture or habit is learned, the fast path takes a median 0.14 s with no LLM call (~25× faster, zero tokens), and none of its guesses were undone. 42 behaviors were learned, 8 of them refined to v2+.
+
+**Recursive Harnessing**, how the harness improves itself:
 - it writes new tools (behaviors) and checks them before use (a "no visible motion" self-check asks the LLM for a fix);
 - refinements ("the turtle should always plod faster") become v2 proposals with a readable diff, a regression replay over every clip that uses the behavior, and a scope guess (everywhere vs. only this time) that you confirm;
-- it compiles your vocabulary into fast paths: taught gestures and learned habits run in ~100 ms with no LLM call;
-- it retunes its own routing thresholds from hard signals (accepted / undone clips, missed gestures), each change a new versioned policy document with its reason and evidence.
+- it compiles your vocabulary into fast paths: taught gestures and learned habits run without the LLM;
+- it retunes its own routing thresholds from hard signals (accepted / undone clips, missed gestures), each change a new versioned policy document with its reason and evidence, also tracked in Raindrop.
 
-It stays coherent over long stories (Long Horizon): scenes derive their start from the previous scene and re-simulate when earlier scenes are edited, characters keep learned traits and habits, every clip is pinned to a behavior version, and a learning curve tracks how often the LLM is still needed.
+**Long Horizon**: stories stay coherent while you edit them. Scenes derive their start from the previous scene and re-simulate when earlier scenes change, characters keep learned traits and habits, every clip is pinned to a behavior version, and a learning curve tracks how often the LLM is still needed.
 
 Built today. Inspired by the author's earlier DrawTalking research (a preset motion library); no code from it is reused.
 
