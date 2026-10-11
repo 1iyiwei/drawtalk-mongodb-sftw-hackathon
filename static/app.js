@@ -149,12 +149,33 @@ function renderScenes() {
   }
 }
 
+function renderEntityList(sc) {
+  const ul = $("entity-list"); ul.replaceChildren();
+  const ids = Object.keys(sc.start_state || {});
+  if (!ids.length) { ul.innerHTML = '<li class="muted">Draw in Ink mode, then name it.</li>'; return; }
+  for (const id of ids) {
+    const e = app.entities[id]; if (!e) continue;
+    const li = document.createElement("li");
+    li.innerHTML = `<b>${e.name}</b> <span class="muted">${(e.traits || []).join(", ")}</span>`;
+    const del = document.createElement("button"); del.className = "del"; del.textContent = "✕"; del.title = "Remove from this scene (and its clips)";
+    del.onclick = async () => {
+      if (!confirm(`Remove “${e.name}” and its clips from this scene?`)) return;
+      await api("/api/scenes/remove-entity", { project_id: app.project._id, scene_id: sc._id, entity_id: id });
+      delete sc.start_state[id]; sc.timeline = (sc.timeline || []).filter((c) => c.actor !== id);
+      status(`removed “${e.name}”`); renderAll();
+    };
+    li.prepend(del); ul.append(li);
+  }
+}
+
 function renderBehaviors() {
   const ul = $("behavior-list"); ul.replaceChildren();
   if (!app.behaviors.length) { ul.innerHTML = '<li class="muted">Empty: teach it by drawing and talking.</li>'; return; }
   for (const b of app.behaviors) {
     const li = document.createElement("li");
-    li.innerHTML = `<b>${b.behavior_id}</b> v${b.version} <span class="muted">${b.description}</span>`;
+    const st = b.stats || {};
+    li.innerHTML = `<b>${b.behavior_id}</b> v${b.version} <span class="muted">${b.description}</span>
+      <div class="chips"><span class="chip">used ${st.uses || 0}</span><span class="chip">accepted ${st.accepted || 0}</span>${st.corrected ? `<span class="chip">corrected ${st.corrected}</span>` : ""}${b.version > 1 ? `<span class="chip new" title="${(b.diff || []).join("\n").replace(/"/g, "&quot;")}">v${b.version}: ${b.change_summary || b.reason}</span>` : ""}</div>`;
     ul.append(li);
   }
 }
@@ -171,10 +192,48 @@ function renderTrace(res) {
     <details><summary>raw decision</summary><pre>${JSON.stringify(tr.decision ?? tr, null, 1)}</pre></details>`;
 }
 
+function renderProposal(p) {
+  const box = $("proposal");
+  if (!p) { box.hidden = true; box.replaceChildren(); return; }
+  const nPass = p.checks.filter((c) => c.pass).length;
+  const who = p.actor ? `${p.actor}'s ` : "";
+  box.hidden = false;
+  box.innerHTML = `
+    <div class="ptitle">Refine <b>${p.behavior_id}</b> v${p.from_version} → v${p.from_version + 1}: ${p.change_summary}</div>
+    <pre class="diff">${p.diff.map((l) => l.replace(/&/g, "&amp;").replace(/</g, "&lt;")).join("\n") || "(no visible change)"}</pre>
+    <div class="checks">Regression replay: <b>${nPass}/${p.checks.length}</b> existing clip(s) still end where the story needs them
+      <ul>${p.checks.map((c) => `<li>${c.pass ? "✓" : "✗"} ${c.scene} · ${c.actor} (v${c.version}, ${c.outcome}) · ${c.duration_before}s → ${c.duration_after}s${c.pass ? "" : ` · end moved ${c.end_deviation_px}px, will stay on v${c.version}`}</li>`).join("")}</ul></div>
+    <div class="scope">Scope guess: <span class="chip">${p.scope_guess === "behavior" ? "everywhere" : "only this time"}</span>
+      <span class="muted">${p.scope_reason}</span></div>
+    <div class="pbuttons">
+      <button data-scope="behavior" class="${p.scope_guess === "behavior" ? "primary" : ""}">All ${who}${p.behavior_id} (v${p.from_version + 1})</button>
+      <button data-scope="instance" class="${p.scope_guess === "instance" ? "primary" : ""}">Only this time</button>
+      <button data-scope="cancel">Cancel</button>
+    </div>`;
+  box.querySelectorAll("button").forEach((b) => (b.onclick = () => decideProposal(p, b.dataset.scope)));
+}
+
+async function decideProposal(p, scope) {
+  status("applying…", "busy");
+  try {
+    const r = await api("/api/refine/confirm", { proposal_id: p._id, scope });
+    renderProposal(null);
+    await load(app.project.name);
+    if (scope === "cancel") return status("refinement cancelled");
+    toast(scope === "behavior"
+      ? `${p.behavior_id} v${r.version} saved · ${r.upgraded.length} clip(s) upgraded`
+      : `applied to this clip only (${p.behavior_id} stays v${p.from_version})`);
+    status(`${r.upgraded.length} clip(s) updated`);
+    const ids = new Set(r.upgraded.filter((u) => u.scene_id === app.sceneId).map((u) => u.clip_id));
+    if (ids.size) await play(scene().timeline || [], { fromStart: true });
+    renderAll();
+  } catch (err) { status(err.message, "err"); }
+}
+
 function renderAll() {
   const sc = scene();
   document.body.classList.toggle("motion", app.mode === "motion");
-  renderScenes(); renderEntities(endStates(sc)); renderPaths(sc); renderClipList(sc); renderBehaviors();
+  renderScenes(); renderEntities(endStates(sc)); renderPaths(sc); renderClipList(sc); renderEntityList(sc); renderBehaviors();
   renderInk();
 }
 
@@ -182,6 +241,7 @@ function renderInk() {
   const layer = $("ink-layer"); layer.replaceChildren();
   for (const s of app.inkStrokes) el("path", { d: pathD(s), class: "ink" }, layer);
   if (app.motionStroke) el("path", { d: pathD(app.motionStroke), class: "motion-stroke" }, layer);
+  if (app.lasso) el("path", { d: pathD(app.lasso) + " Z", class: "lasso" }, layer);
 }
 
 // ------------------------------------------------------------------ playback
@@ -238,7 +298,9 @@ canvas.addEventListener("pointerdown", (e) => {
   canvas.setPointerCapture(e.pointerId);
   drawStart = performance.now();
   drawing = [[...svgPoint(e), 0]];
-  if (app.mode === "motion") app.motionStroke = drawing; else app.inkStrokes.push(drawing);
+  if (app.mode === "motion") app.motionStroke = drawing;
+  else if (app.mode === "erase") app.lasso = drawing;
+  else app.inkStrokes.push(drawing);
   renderInk();
 });
 canvas.addEventListener("pointermove", (e) => {
@@ -249,6 +311,7 @@ canvas.addEventListener("pointermove", (e) => {
   renderInk();
 });
 canvas.addEventListener("pointerup", () => {
+  if (app.mode === "erase" && app.lasso) { const l = app.lasso; app.lasso = null; drawing = null; renderInk(); if (l.length > 2) eraseInside(l); return; }
   if (drawing && drawing.length < 2) { app.inkStrokes = app.inkStrokes.filter((s) => s !== drawing); if (app.motionStroke === drawing) app.motionStroke = null; }
   drawing = null; renderInk();
   if (app.mode === "motion" && app.motionStroke) $("command-input").focus();
@@ -256,17 +319,56 @@ canvas.addEventListener("pointerup", () => {
 
 function setMode(m) {
   app.mode = m;
-  $("mode-ink").classList.toggle("on", m === "ink");
-  $("mode-motion").classList.toggle("on", m === "motion");
+  for (const k of ["ink", "motion", "erase"]) $("mode-" + k).classList.toggle("on", m === k);
   document.body.classList.toggle("motion", m === "motion");
+  document.body.classList.toggle("erase", m === "erase");
+}
+
+function insidePoly(p, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const [xi, yi] = poly[i], [xj, yj] = poly[j];
+    if ((yi > p[1]) !== (yj > p[1]) && p[0] < ((xj - xi) * (p[1] - yi)) / (yj - yi) + xi) inside = !inside;
+  }
+  return inside;
+}
+const mostlyInside = (pts, poly) => pts.filter((p) => insidePoly(p, poly)).length >= Math.max(1, pts.length * 0.5);
+
+async function eraseInside(lasso) {
+  let n = 0;
+  const before = app.inkStrokes.length;
+  app.inkStrokes = app.inkStrokes.filter((s) => !mostlyInside(s, lasso));
+  n += before - app.inkStrokes.length;
+  if (app.motionStroke && mostlyInside(app.motionStroke, lasso)) { app.motionStroke = null; n++; }
+  const sc = scene(), states = endStates(sc);
+  for (const [id, st] of Object.entries(states)) {
+    const e = app.entities[id]; if (!e) continue;
+    const world = (p) => [st.x + p[0] * Math.abs(st.sx ?? 1), st.y + p[1] * Math.abs(st.sy ?? 1)];
+    const hit = e.strokes.map((s, i) => (mostlyInside(s.map(world), lasso) ? i : -1)).filter((i) => i >= 0);
+    if (!hit.length) continue;
+    if (hit.length === e.strokes.length) {
+      if (!confirm(`Erase all of “${e.name}”? This removes it and its clips from ${sc.title}.`)) continue;
+      await api("/api/scenes/remove-entity", { project_id: app.project._id, scene_id: sc._id, entity_id: id });
+      delete sc.start_state[id]; sc.timeline = (sc.timeline || []).filter((c) => c.actor !== id);
+    } else {
+      const r = await api("/api/entities/erase-strokes", { project_id: app.project._id, entity_id: id, stroke_indices: hit });
+      e.strokes = r.strokes; e.bbox = r.bbox;
+    }
+    n += hit.length;
+  }
+  status(n ? `erased ${n} stroke(s)` : "nothing inside the lasso");
+  renderAll();
 }
 $("mode-ink").onclick = () => setMode("ink");
 $("mode-motion").onclick = () => setMode("motion");
+$("mode-erase").onclick = () => setMode("erase");
 document.addEventListener("keydown", (e) => {
   if (e.target.tagName === "INPUT") return;
   if (e.key === "i") setMode("ink");
-  if (e.key === "m") setMode("motion");
+  if (e.key === "p" || e.key === "m") setMode("motion");
+  if (e.key === "e") setMode("erase");
   if (e.key === "Escape") clearPending();
+  if ((e.metaKey || e.ctrlKey) && e.key === "z") { e.preventDefault(); if (app.motionStroke) app.motionStroke = null; else app.inkStrokes.pop(); renderInk(); }
 });
 function clearPending() { app.inkStrokes = []; app.motionStroke = null; renderInk(); }
 $("clear-ink").onclick = clearPending;
@@ -296,9 +398,10 @@ $("command-form").onsubmit = async (e) => {
     const res = await api("/api/command", { project_id: app.project._id, scene_id: app.sceneId, text, stroke });
     app.lastResult = res;
     renderTrace(res);
+    renderProposal(res.proposal || null);
     app.motionStroke = null; renderInk();
     $("command-input").value = "";
-    status(res.clips.length ? `${res.clips.length} clip(s)` : "nothing to animate");
+    status(res.proposal ? "confirm the refinement above" : res.clips.length ? `${res.clips.length} clip(s)` : "nothing to animate");
     if (res.clips.length) {
       scene().timeline = [...(scene().timeline || []), ...res.clips];
       renderPaths(scene()); renderClipList(scene());
@@ -311,6 +414,12 @@ $("command-form").onsubmit = async (e) => {
   finally { $("send").disabled = false; }
 };
 
+$("clear-clips").onclick = async () => {
+  const sc = scene();
+  if (!sc.timeline?.length || !confirm(`Remove all ${sc.timeline.length} clip(s) from ${sc.title}?`)) return;
+  await api("/api/scenes/clear", { project_id: app.project._id, scene_id: sc._id });
+  sc.timeline = []; status("clips cleared"); renderAll();
+};
 $("play-scene").onclick = () => play(scene().timeline || [], { fromStart: true }).then(renderAll);
 $("play-story").onclick = async () => {
   for (const s of app.scenes) { app.sceneId = s._id; renderAll(); await play(s.timeline || [], { fromStart: true }); }

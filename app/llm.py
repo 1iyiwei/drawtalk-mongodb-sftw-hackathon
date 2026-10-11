@@ -14,7 +14,9 @@ TIMEOUT_S = float(os.getenv("LLM_TIMEOUT_S", "25"))
 def client() -> OpenAI:
     global _client
     if _client is None:
-        _client = OpenAI(timeout=TIMEOUT_S, max_retries=1)
+        # LLM_BASE_URL lets any OpenAI-compatible server stand in, e.g. Ollama at http://localhost:11434/v1
+        base = os.getenv("LLM_BASE_URL") or None
+        _client = OpenAI(timeout=TIMEOUT_S, max_retries=1, base_url=base, api_key=os.getenv("OPENAI_API_KEY") or "ollama")
     return _client
 
 
@@ -26,11 +28,11 @@ def structured(system: str, user: str, schema_name: str, schema: dict) -> tuple[
         messages=[{"role": "system", "content": system}, {"role": "user", "content": user}],
         response_format={"type": "json_schema", "json_schema": {"name": schema_name, "strict": True, "schema": schema}},
     )
-    effort = os.getenv("OPENAI_REASONING_EFFORT", "low")
+    effort = os.getenv("OPENAI_REASONING_EFFORT", "" if os.getenv("LLM_BASE_URL") else "low")
     try:
-        r = client().chat.completions.create(**kwargs, reasoning_effort=effort)
-    except Exception as e:  # some models reject reasoning_effort; retry without it
-        if "reasoning" not in str(e).lower():
+        r = client().chat.completions.create(**kwargs, **({"reasoning_effort": effort} if effort else {}))
+    except Exception as e:  # some models reject reasoning/thinking options; retry without
+        if not any(w in str(e).lower() for w in ("reasoning", "thinking")):
             raise
         r = client().chat.completions.create(**kwargs)
     msg = r.choices[0].message

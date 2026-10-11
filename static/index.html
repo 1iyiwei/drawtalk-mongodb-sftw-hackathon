@@ -12,7 +12,8 @@
     <span class="project">project <b id="project-name"></b></span>
     <div class="modes" role="group" aria-label="Pen mode">
       <button id="mode-ink" class="on" title="Draw characters (I)">✏️ Ink</button>
-      <button id="mode-motion" title="Draw motion paths (M)">➰ Motion</button>
+      <button id="mode-motion" title="Draw a path for a character to follow (P)">➰ Path</button>
+      <button id="mode-erase" title="Lasso to erase (E)">🧽 Erase</button>
     </div>
     <span id="status" class="status"></span>
   </header>
@@ -30,8 +31,10 @@
       <form id="name-form" class="bar">
         <input id="name-input" placeholder="Name the ink you drew (e.g. hare) and press Enter" autocomplete="off">
         <button type="submit">Make character</button>
-        <button type="button" id="clear-ink" title="Discard ink and motion strokes (Esc)">Clear</button>
+        <button type="button" id="clear-ink" title="Discard unsaved ink and path strokes (Esc)">Clear</button>
       </form>
+
+      <div id="proposal" class="proposal" hidden></div>
 
       <form id="command-form" class="bar command">
         <input id="command-input" placeholder="Say what happens, e.g. “the hare and the tortoise race to the tree”" autocomplete="off">
@@ -48,7 +51,11 @@
 
     <aside>
       <section>
-        <h2>Clips <small>(this scene)</small></h2>
+        <h2>Characters <small>(this scene)</small></h2>
+        <ul id="entity-list" class="plain"></ul>
+      </section>
+      <section>
+        <h2>Clips <small>(this scene)</small> <button id="clear-clips" class="mini" title="Remove all clips in this scene">Clear clips</button></h2>
         <ol id="clip-list"></ol>
       </section>
       <section>

@@ -7,7 +7,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from app import db, geometry, harness
+from app import db, geometry, harness, refine
 
 
 @asynccontextmanager
@@ -136,3 +136,69 @@ async def delete_clip(body: ClipDeleteIn):
     await db.log_event(body.project_id, "clip_deleted", scene_id=body.scene_id, clip_id=body.clip_id,
                        behavior_id=clip["behavior_id"], example_id=clip["example_id"])
     return {"ok": True}
+
+
+class SceneOpIn(BaseModel):
+    project_id: str
+    scene_id: str
+    entity_id: str | None = None
+
+
+@app.post("/api/scenes/clear")
+async def clear_scene(body: SceneOpIn):
+    """Remove all clips from a scene (characters stay where the scene starts)."""
+    r = await db.col("scenes").update_one({"_id": body.scene_id, "project_id": body.project_id}, {"$set": {"timeline": []}})
+    if not r.matched_count:
+        raise HTTPException(404, "scene not found")
+    await db.log_event(body.project_id, "scene_cleared", scene_id=body.scene_id)
+    return {"ok": True}
+
+
+@app.post("/api/scenes/remove-entity")
+async def remove_entity(body: SceneOpIn):
+    """Take a character out of a scene, with the clips that move it. The entity doc is kept (history)."""
+    r = await db.col("scenes").update_one(
+        {"_id": body.scene_id, "project_id": body.project_id},
+        {"$unset": {f"start_state.{body.entity_id}": ""}, "$pull": {"timeline": {"actor": body.entity_id}}},
+    )
+    if not r.matched_count:
+        raise HTTPException(404, "scene not found")
+    await db.log_event(body.project_id, "entity_removed", scene_id=body.scene_id, entity_id=body.entity_id)
+    return {"ok": True}
+
+
+class EraseIn(BaseModel):
+    project_id: str
+    entity_id: str
+    stroke_indices: list[int]
+
+
+@app.post("/api/entities/erase-strokes")
+async def erase_strokes(body: EraseIn):
+    """Delete some strokes of a character (all scenes share it). The pivot stays; the bbox is recomputed."""
+    ent = await db.col("entities").find_one({"_id": body.entity_id, "project_id": body.project_id})
+    if not ent:
+        raise HTTPException(404, "entity not found")
+    drop = set(body.stroke_indices)
+    keep = [s for i, s in enumerate(ent["strokes"]) if i not in drop]
+    if not keep:
+        raise HTTPException(400, "would erase every stroke; remove the character instead")
+    x0, y0, x1, y1 = geometry.bbox([(p[0], p[1]) for s in keep for p in s])
+    await db.col("entities").update_one({"_id": body.entity_id}, {"$set": {"strokes": keep, "bbox": [x0, y0, x1, y1]}})
+    await db.log_event(body.project_id, "strokes_erased", entity_id=body.entity_id, n_erased=len(drop), n_left=len(keep))
+    return {"strokes": keep, "bbox": [x0, y0, x1, y1]}
+
+
+class RefineIn(BaseModel):
+    proposal_id: str
+    scope: str  # behavior | instance | cancel
+
+
+@app.post("/api/refine/confirm")
+async def refine_confirm(body: RefineIn):
+    if body.scope not in ("behavior", "instance", "cancel"):
+        raise HTTPException(400, "bad scope")
+    try:
+        return await refine.apply(body.proposal_id, body.scope)
+    except ValueError as e:
+        raise HTTPException(404, str(e))

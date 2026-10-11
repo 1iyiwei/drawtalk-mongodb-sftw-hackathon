@@ -1,10 +1,11 @@
 """The harness: turns a command (text and/or stroke) into versioned behaviors, clips, examples and events."""
 
+import json
 import math
 import re
 import time
 
-from app import db, dsl, geometry, llm
+from app import db, dsl, geometry, llm, refine
 
 DEFAULT_STATE = {"rot": 0.0, "sx": 1.0, "sy": 1.0, "op": 1.0}
 
@@ -30,6 +31,8 @@ Motion program (JSON, every node has "type"):
 - seq {steps}; par {steps}; layer {base, mods}
 - mods: hop {height px, every_px, squash 0..0.4}, bob {amplitude px, period s}, breathe {amount 0..0.2, period s},
   face_motion {}, emit {glyph, every s, rise px, fade s}
+Idioms: lie down / fall asleep = seq[turn_to angle 80-90, layer{stay, breathe + emit "Z"}]; get up / wake = turn_to 0
+(+ a quick scale_to pop); jump = move_along path "arc"; spin = turn_to 360.
 Numbers may be {"param": name} referencing a declared parameter. Expose the things a user would tweak
 (speed, hop height, nap length) as parameters with sensible ranges.
 
@@ -49,7 +52,35 @@ direction: when there is no target character but the text gives a direction ("mo
 left/right/up/down and distance_px (default ~250, "a little" ~100, "far"/"across" ~600); otherwise "none" and null.
 timing: "together" if the actions happen at the same time ("race", "both", "while", "meanwhile", "together"),
 "in_order" if one after another ("then", "after").
-message: one short sentence describing what will happen, for the user."""
+message: one short sentence describing what will happen, for the user.
+
+intent: "animate" for commands that make characters move now. "refine" when the user corrects or changes HOW an
+existing behavior looks ("should always plod steadily", "jump higher", "make the nap lie down with Zzz",
+"slower next time"). For refine, set actions to [] and fill `refine`:
+- behavior_id: the catalog behavior being changed; actor: the character it was about (or null)
+- program and params: the COMPLETE new version (edit the current program shown in the catalog; keep what the
+  user didn't ask to change; keep parameter names stable)
+- description: updated one-line description; change_summary: one short sentence of what changed
+- scope_guess: "behavior" if it should apply everywhere ("always", "should", general wording),
+  "instance" if only this one time ("this time", "here"); scope_reason: the words that suggested it.
+For animate, set refine to null."""
+
+
+REFINE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "behavior_id": {"type": "string"},
+        "actor": {"anyOf": [{"type": "string"}, {"type": "null"}]},
+        "description": {"type": "string"},
+        "params": {"type": "array", "items": dsl.PARAM_SPEC_SCHEMA},
+        "program": {"$ref": "#/$defs/node"},
+        "change_summary": {"type": "string"},
+        "scope_guess": {"type": "string", "enum": ["behavior", "instance"]},
+        "scope_reason": {"type": "string"},
+    },
+    "required": ["behavior_id", "actor", "description", "params", "program", "change_summary", "scope_guess", "scope_reason"],
+    "additionalProperties": False,
+}
 
 
 def decision_schema(entity_names: list[str]) -> dict:
@@ -97,11 +128,13 @@ def decision_schema(entity_names: list[str]) -> dict:
     return {
         "type": "object",
         "properties": {
+            "intent": {"type": "string", "enum": ["animate", "refine"]},
             "actions": {"type": "array", "items": action},
             "timing": {"type": "string", "enum": ["together", "in_order"]},
+            "refine": {"anyOf": [REFINE_SCHEMA, {"type": "null"}]},
             "message": {"type": "string"},
         },
-        "required": ["actions", "timing", "message"],
+        "required": ["intent", "actions", "timing", "refine", "message"],
         "additionalProperties": False,
         "$defs": dsl.SCHEMA_DEFS,
     }
@@ -164,8 +197,24 @@ def catalog_text(behaviors: dict[str, dict]) -> str:
     lines = []
     for b in behaviors.values():
         ps = ", ".join(f"{p['name']}={p['default']:g}{p['unit']} [{p['min']:g}..{p['max']:g}]" for p in b["params"])
-        lines.append(f"- behavior_id={b['behavior_id']} (version {b['version']}): {b['description']} | params: {ps or 'none'}")
+        lines.append(f"- behavior_id={b['behavior_id']} (version {b['version']}): {b['description']} | params: {ps or 'none'}"
+                     f"\n  program: {json.dumps(b['program'], separators=(',', ':'))}")
     return "\n".join(lines)
+
+
+async def accept_pending(project_id: str) -> int:
+    """Implicit acceptance: moving on to the next command without undoing a clip accepts it (a hard signal)."""
+    pending = [e async for e in db.col("examples").find({"project_id": project_id, "outcome": "pending"},
+                                                          {"behavior_id": 1, "behavior_version": 1})]
+    if not pending:
+        return 0
+    await db.col("examples").update_many({"_id": {"$in": [e["_id"] for e in pending]}}, {"$set": {"outcome": "accepted"}})
+    for e in pending:
+        await db.col("behaviors").update_one(
+            {"project_id": project_id, "behavior_id": e["behavior_id"], "version": e["behavior_version"]},
+            {"$inc": {"stats.accepted": 1}})
+    await db.log_event(project_id, "examples_accepted", n=len(pending))
+    return len(pending)
 
 
 # ---------------------------------------------------------------- command
@@ -181,6 +230,7 @@ async def run_command(project_id: str, scene_id: str, text: str, stroke: list | 
     in_scene = {eid: e for eid, e in entities.items() if eid in states}
     by_name = {e["name"]: eid for eid, e in in_scene.items()}
     behaviors = await latest_behaviors(project_id)
+    await accept_pending(project_id)
 
     summary = stroke_summary(stroke, in_scene, states) if stroke and len(stroke) > 1 else None
     chars = "\n".join(
@@ -188,16 +238,47 @@ async def run_command(project_id: str, scene_id: str, text: str, stroke: list | 
         + (f", traits: {', '.join(e.get('traits', []))}" if e.get("traits") else "")
         for eid, e in in_scene.items()
     )
+    recent = "\n".join(
+        f"- {entities.get(c['actor'], {}).get('name', '?')}: {c['behavior_id']} v{c['behavior_version']} "
+        f"(path {c['path']['kind']}, {c['duration']:.1f}s, text {c.get('text', '')!r})"
+        for c in sorted(scene.get("timeline", []), key=lambda c: c["start"])[-6:]
+    )
     user = (
-        f"Characters in the scene:\n{chars or '(none)'}\n\nBehavior catalog:\n{catalog_text(behaviors)}\n\n"
+        f"Characters in the scene:\n{chars or '(none)'}\n\n"
+        f"Clips so far in this scene (latest last; a refinement usually targets the latest clip's behavior):\n{recent or '(none)'}\n\n"
+        f"Behavior catalog:\n{catalog_text(behaviors)}\n\n"
         f"Command text: {text!r}\n"
         f"Stroke: {summary if summary else 'none'}"
     )
     decision, meta = llm.structured(SYSTEM, user, "motion_decision", decision_schema(list(by_name)))
     cmd_event = await db.log_event(
         project_id, "command", scene_id=scene_id, text=text, has_stroke=bool(summary), route="llm", llm=meta,
-        n_actions=len(decision["actions"]),
+        intent=decision["intent"], n_actions=len(decision["actions"]),
     )
+
+    if decision["intent"] == "refine" and decision["refine"]:
+        r = decision["refine"]
+        r["behavior_id"] = normalize_id(r["behavior_id"])
+        current = behaviors.get(r["behavior_id"])
+        trace = {"llm": meta, "decision": decision, "steps": [], "route": "llm"}
+        if not current:
+            trace["steps"].append(f"refine target {r['behavior_id']!r} not in the library")
+            return {"message": f"I couldn't find a behavior called {r['behavior_id']!r} to change.", "clips": [],
+                    "written": [], "trace": trace, "event_id": cmd_event}
+        try:
+            prop = await refine.propose(project_id, scene_id, text, current, r, cmd_event, entities)
+        except dsl.DSLError as e:
+            trace["steps"].append(f"rejected refinement: {e}")
+            return {"message": "That change produced an invalid motion program; try rephrasing.", "clips": [],
+                    "written": [], "trace": trace, "event_id": cmd_event}
+        n_pass = sum(c["pass"] for c in prop["checks"])
+        trace["steps"] += [f"proposed {current['behavior_id']} v{current['version']} → v{current['version'] + 1}",
+                           f"regression replay: {n_pass}/{len(prop['checks'])} clips keep their end position"]
+        trace["total_ms"] = round((time.time() - t0) * 1000)
+        prop.pop("created", None)
+        return {"message": decision["message"], "clips": [], "proposal": prop,
+                "written": [{"collection": "proposals", "id": prop["_id"], "what": "pending refinement"}],
+                "trace": trace, "event_id": cmd_event}
 
     clips, written, trace = [], [], {"llm": meta, "stroke": summary, "decision": decision, "steps": []}
     prev_start = None
