@@ -70,11 +70,14 @@ async def similar_examples(project_id: str, text: str, k: int = 4) -> list[dict]
 
 # ---------------------------------------------------------------- harness config (versioned, self-modifying)
 
-DEFAULT_CONFIG = {"fast_path": {"min_score": 0.8, "min_examples": 2, "accepted_since_change": 0}}
+DEFAULT_CONFIG = {"fast_path": {"min_score": 0.8, "min_examples": 2, "accepted_since_change": 0,
+                                 "gesture_min_score": 0.6, "gesture_margin": 0.1}}
 
 
 async def get_config(project_id: str) -> dict:
     doc = await db.col("harness_config").find_one({"project_id": project_id}, sort=[("version", -1)])
+    if doc:  # older versions predate newer keys
+        doc["fast_path"] = {**DEFAULT_CONFIG["fast_path"], **doc["fast_path"]}
     return doc or {"project_id": project_id, "version": 0, **DEFAULT_CONFIG}
 
 

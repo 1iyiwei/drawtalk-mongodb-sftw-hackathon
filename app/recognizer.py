@@ -73,3 +73,21 @@ def distance(a, b) -> float:
 def similarity(a, b) -> float:
     """Map $P distance to 0..1 (1 = identical). ~0.8+ is a confident match for 32-point templates."""
     return max(0.0, 1.0 - distance(a, b) / 5.0)
+
+
+def normalize_axes(pts) -> list[tuple[float, float]]:
+    """Gesture normalization: stretch each axis to unit size so a wide Z and a tall Z match. Thin strokes keep
+    their flatness (an axis is never stretched more than ~3x the other), so a line doesn't become a box."""
+    pts = resample(pts)
+    xs, ys = [p[0] for p in pts], [p[1] for p in pts]
+    w, h = (max(xs) - min(xs)) or 1.0, (max(ys) - min(ys)) or 1.0
+    big = max(w, h)
+    w, h = max(w, big * 0.3), max(h, big * 0.3)
+    s = [((x - min(xs)) / w, (y - min(ys)) / h) for x, y in pts]
+    cx, cy = sum(p[0] for p in s) / len(s), sum(p[1] for p in s) / len(s)
+    return [(x - cx, y - cy) for x, y in s]
+
+
+def gesture_similarity(a, b) -> float:
+    """Similarity for deliberate gestures: aspect-invariant $P. ~0.6+ is the same symbol drawn by hand."""
+    return max(0.0, 1.0 - distance(normalize_axes(a), normalize_axes(b)) / 5.0)

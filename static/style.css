@@ -44,7 +44,8 @@ h2 small { text-transform: none; letter-spacing: 0; }
 #clip-list li { border-left: 3px solid var(--accent); padding: 2px 8px; }
 #entity-list { margin: 0; padding: 0; list-style: none; }
 #entity-list li { padding: 2px 0; }
-#entity-list .del, #clip-list .del { float: right; padding: 0 6px; border: 0; color: var(--muted); background: none; }
+#entity-list .del, #clip-list .timing { font-size: 11px; font-weight: 600; color: var(--accent); }
+#clip-list .del { float: right; padding: 0 6px; border: 0; color: var(--muted); background: none; }
 #entity-list .del:hover, #clip-list .del:hover { color: #b3261e; }
 #clip-list .num { font-weight: 700; margin-right: 4px; }
 .chips { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 3px; }
@@ -108,3 +109,6 @@ button.mini { float: right; font-size: 11px; padding: 1px 6px; text-transform: n
 .legend i { display: inline-block; width: 14px; height: 2px; vertical-align: middle; margin-right: 4px; }
 #history { margin: 6px 0 0; padding-left: 18px; font-size: 12px; }
 #history li { margin-bottom: 4px; }
+
+#project-select { font: inherit; font-weight: 600; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); }
+.viz-root.spot { box-shadow: 0 0 0 3px var(--accent); transition: box-shadow .3s; }

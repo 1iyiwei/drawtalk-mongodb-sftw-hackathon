@@ -21,7 +21,8 @@ For each action choose a behavior:
   taxonomy path like ["travel","run","dash"], parameter specs, and a motion program). Keep programs small.
 Prefer apply when a catalog behavior's description matches; create when the motion type is new.
 A behavior is a MOTION STYLE (dash, hop, plod, waddle, nap), not a situation: "race" or "go home" is the
-situation. If characters move differently by nature (a hare dashes with hops, a tortoise plods with a slight
+situation. WHERE a character goes (a target, a drawn path, a direction) is never part of a behavior: "plods to
+the rock", "plods along this path" and "plods on" all apply the same "plod". If characters move differently by nature (a hare dashes with hops, a tortoise plods with a slight
 bob), give each its own style behavior. Make motions lively with modifiers (hop, bob, breathe, face_motion)
 where they fit the character. Name behaviors after the style (e.g. "dash", "plod"), not the actor.
 
@@ -63,7 +64,8 @@ existing behavior looks ("should always plod steadily", "jump higher", "make the
 "slower next time"). For refine, set actions to [] and fill `refine`:
 - behavior_id: the catalog behavior being changed; actor: the character it was about (or null)
 - program and params: the COMPLETE new version (edit the current program shown in the catalog; keep what the
-  user didn't ask to change; keep parameter names stable)
+  user didn't ask to change; keep parameter names stable). Never replace a {"param": name} reference with a
+  number: to make something faster/higher/longer, change that parameter's default (and range) instead.
 - description: updated one-line description; change_summary: one short sentence of what changed
 - scope_guess: "behavior" if it should apply everywhere ("always", "should", general wording),
   "instance" if only this one time ("this time", "here"); scope_reason: the words that suggested it.
@@ -267,16 +269,16 @@ async def fast_match(project_id: str, gesture: dict | None, path: dict | None, b
             {"project_id": project_id, "outcome": "accepted", "gesture_template": {"$ne": None}},
             {"gesture_template": 1, "behavior_id": 1, "actor_name": 1, "params": 1},
         ):
-            sim = recognizer.similarity(gesture["template"], [tuple(p) for p in ex["gesture_template"]])
+            sim = recognizer.gesture_similarity(gesture["template"], [tuple(p) for p in ex["gesture_template"]])
             cur = best.setdefault(ex["behavior_id"], {"score": 0.0, "support": 0, "example": None})
-            cur["support"] += sim >= cfg["min_score"]
+            cur["support"] += sim >= cfg["gesture_min_score"]
             if sim + (0.02 if ex["actor_name"] == actor else 0) > cur["score"]:
                 cur.update(score=sim + (0.02 if ex["actor_name"] == actor else 0), example=ex)
         cands = sorted(best.items(), key=lambda kv: -kv[1]["score"])
-        info.update(kind="gesture", actor=actor, candidates=[
+        info.update(kind="gesture", actor=actor, threshold=cfg["gesture_min_score"], candidates=[
             {"behavior": b, "score": round(v["score"], 3), "support": v["support"]} for b, v in cands[:4]])
         runner = cands[1][1]["score"] if len(cands) > 1 else 0.0
-        if not cands or cands[0][1]["score"] < cfg["min_score"] or cands[0][1]["score"] - runner < 0.03:
+        if not cands or cands[0][1]["score"] < cfg["gesture_min_score"] or cands[0][1]["score"] - runner < cfg["gesture_margin"]:
             return {**info, "decision": None, "unknown_gesture": True, "reason": "gesture not recognized"}
         bid, top = cands[0]
         on_path = path and path.get("starts_on") == actor
@@ -394,7 +396,8 @@ async def run_command(project_id: str, scene_id: str, text: str, stroke: list | 
                f"to teach me what it means.")
         trace = {"route": "ask", "fast_match": {k: v for k, v in fast.items() if k != "decision"}, "steps": [msg],
                  "total_ms": round((time.time() - t0) * 1000)}
-        await db.log_event(project_id, "gesture_unknown", scene_id=scene_id, background=True)
+        await db.log_event(project_id, "gesture_unknown", scene_id=scene_id, actor=g_info["actor"], template=g_info["template"],
+                           candidates=fast.get("candidates"), threshold=fast.get("threshold"), background=True)
         return {"message": msg, "clips": [], "written": [], "trace": trace, "event_id": None}
     if fast and fast["decision"]:
         decision, meta, route = fast["decision"], None, "fast"
@@ -428,6 +431,7 @@ async def run_command(project_id: str, scene_id: str, text: str, stroke: list | 
         n_pass = sum(c["pass"] for c in prop["checks"])
         trace["steps"] += [f"proposed {current['behavior_id']} v{current['version']} → v{current['version'] + 1}",
                            f"regression replay: {n_pass}/{len(prop['checks'])} clips keep their end position"]
+        trace["steps"] += [f"guardrail: {f}" for f in prop.get("guardrail_fixes", [])]
         trace["total_ms"] = round((time.time() - t0) * 1000)
         prop.pop("created", None)
         return {"message": decision["message"], "clips": [], "proposal": prop,

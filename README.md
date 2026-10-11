@@ -3,34 +3,56 @@
 Built at [The Harness Engineering & Model Wrangling #SFTechWeek Hackathon](https://cerebralvalley.ai/e/mongodb-sftw-hackathon)
 (MongoDB × Cerebral Valley, Oct 11 2026).
 
-An animation tool that **learns your language**. You sketch 2D characters and animate them by drawing
-strokes and/or talking ("the hare and the tortoise race to the tree"). There's no preset library: every
-behavior is taught, stored as a versioned motion program in MongoDB, tested against your past examples
-and improved from your corrections. Over time the harness turns your vocabulary into fast, deterministic
-tools that don't need an LLM call.
+An animation tool that **learns your language**. You sketch 2D characters and animate them by typing
+("the hare and the tortoise race to the tree"), drawing a path, or drawing a gesture. There's no preset
+motion library: every behavior is taught, stored as a versioned motion program in MongoDB, regression-tested
+against your past examples and improved from your corrections. Over time the harness **compiles your
+vocabulary into fast, deterministic tools** that don't need an LLM call.
 
-- Problem statements: **Recursive Harnessing** (the harness rewrites its own tools, routing and rules) and
-  **Long Horizon Engineering** (multi-scene stories with character memory, version pinning and learning
-  curves from hard signals).
-- [Design](prep/design.md) · [motion DSL](prep/motion-dsl.md)
-  · [demo script](prep/storyboard.md) · [build plan](prep/plan.md)
-  · [early brainstorm](prep/gemini.md)
-
-> Status: setup and design done before the event; the app is being built on hackathon day.
-> Sections marked *TBD* get filled in as the parts land.
+- **Recursive Harnessing**: the harness writes its own tools (behaviors), versions and tests its own
+  changes, and retunes its own routing policy from feedback, with every change stored with a reason and
+  evidence.
+- **Long Horizon Engineering**: multi-scene stories stay coherent while you edit them. Characters keep
+  learned traits and habits, scenes derive their start from the previous scene and re-simulate when it
+  changes, behavior versions are pinned per clip, and a learning curve tracks hard signals.
+- Docs: [design](prep/design.md) · [motion DSL](prep/motion-dsl.md) · [demo script](prep/storyboard.md)
+  · [judging notes](prep/judging.md) · [build plan](prep/plan.md) · [early brainstorm](prep/gemini.md)
 
 ## What was built when (hackathon provenance)
 
 | When | What |
 |---|---|
 | Before the event (Oct 10) | design documents in `prep/`; environment setup (`pyproject.toml`, `.env.example`, `.claude/settings.json`); service smoke test `scripts/check_setup.py`; `scripts/voyage.py` |
-| During the event (Oct 11, from 10:30) | **all application code**: *TBD, list directories here* |
+| During the event (Oct 11, from 10:30) | **all application code**: `app/` (harness, motion DSL + evaluator, $P recognizer, refinement + regression replay, scene continuity, vector memory, routing policy, API), `static/` (canvas UI), `tests/`, `.claude/launch.json` |
 
 The concept is inspired by the author's prior research prototypes (DrawTalking, Narrative Motion Blocks):
-sketch + speech to animate drawings with a preset motion library. **No code, data or assets from those
-projects are used here.** What's new is the agent harness: behaviors learned instead of preset, versioned,
-regression-tested self-modification, fast-path compilation, and long-horizon memory in MongoDB. The git
-history shows the timeline.
+sketch + speech to animate drawings with a **preset** motion library. **No code, data or assets from those
+projects are used here.** What's new is the agent harness: behaviors learned instead of preset,
+versioned and regression-tested self-modification, fast-path compilation, self-tuned routing, and
+long-horizon memory in MongoDB. The git history shows the timeline.
+
+## How it works
+
+| You provide | Where it goes | How it moves | Route |
+|---|---|---|---|
+| text | target character, direction, or in place | the words | LLM (with vector-memory examples) |
+| path + text | along the drawn path | the words | LLM |
+| gesture + text | (teaching) | the words; the gesture's shape is saved as a "drawn word" | LLM |
+| gesture alone | in place (or along a path, if drawn) | the taught gesture ($P shape match) | ⚡ fast, no LLM |
+| path alone | along the drawn path | the character's learned habit | ⚡ fast, no LLM (once the habit is clear) |
+| "should always…" / "this time…" | | refines an existing behavior → v2 proposal | LLM + confirmation |
+
+- **Behaviors** are small JSON programs in a motion DSL (`move_along`, `hop`, `bob`, `breathe`, `turn_to`,
+  `seq`, `par`, …), written by the LLM against a strict JSON schema and evaluated in Python into keyframes.
+  The browser only plays keyframes; no generated code is executed.
+- **Parameters** carry their source, e.g. `speed 520: text 'race' + trait: hare is quick`.
+- **Refinement** proposes v2 with a readable diff, replays every existing clip of that behavior (does it
+  still end where the story needs it?), and asks for scope: *everywhere* (new version, upgrades passing
+  clips) or *only this time* (an override on one clip).
+- **Routing policy** lives in versioned `harness_config` documents. Accepted fast-path guesses relax the
+  threshold, and undone ones tighten it, each change recorded with its reason and evidence.
+- **Implicit feedback**: moving on accepts the previous clip; ✕ marks it undone. These are the hard signals
+  behind the learning curve.
 
 ## Stack
 
@@ -38,10 +60,13 @@ history shows the timeline.
 |---|---|
 | Data & memory | MongoDB Atlas (documents + Vector Search), PyMongo async driver |
 | Embeddings | Voyage AI (`voyage-4-lite`, 1024-d) |
-| LLM | OpenAI (`gpt-5.4-mini` by default; set by env var) |
-| Speech to text | ElevenLabs Scribe (`scribe_v2`), optional; browser Web Speech API as fallback |
+| LLM | OpenAI (`gpt-5.4-mini` by default). Any OpenAI-compatible server works, e.g. Ollama `qwen3-coder:30b` |
+| Gestures | $P point-cloud recognizer (own implementation, `app/recognizer.py`) |
 | Backend | Python 3.13, FastAPI, uvicorn, managed with `uv` |
-| Frontend | SVG canvas + Web Animations API (no build step) |
+| Frontend | SVG canvas, plain JS (no build step) |
+
+Input is text only: the venue was too noisy for voice. The ElevenLabs speech-to-text check in
+`scripts/check_setup.py` is from the pre-event setup.
 
 ## Reproduce
 
@@ -49,14 +74,14 @@ history shows the timeline.
 
 - [`uv`](https://docs.astral.sh/uv/) (it installs Python 3.13 for you)
 - A MongoDB Atlas cluster that supports Vector Search (we used an M10 in the hackathon sandbox)
-- API keys: OpenAI, Voyage AI; optional: ElevenLabs (Speech to Text only), Anthropic
-- macOS for the ElevenLabs part of the setup check (it makes test audio with `say` / `afconvert`)
+- API keys: OpenAI and Voyage AI (or a local Ollama for the LLM; Voyage is still needed for memory)
 
 ### 2. Atlas
 
 1. Create a cluster.
 2. **Database Users** → add a user with *Read and write to any database*.
-3. **Network Access** → add your current IP. Re-add it when your network changes.
+3. **Network Access** → add your current IP. Re-add it when your network changes; some networks use
+   several outgoing IPs.
 4. **Connect → Drivers → PyMongo (asynchronous)** → copy the `mongodb+srv://…` string.
 
 ### 3. Install and configure
@@ -68,7 +93,8 @@ uv sync
 cp .env.example .env   # then fill in the values
 ```
 
-`.env` is git-ignored. Never commit it.
+`.env` is git-ignored. Never commit it. To use a local model instead of OpenAI, set
+`LLM_BASE_URL=http://localhost:11434/v1` and `OPENAI_MODEL=qwen3-coder:30b`.
 
 ### 4. Check every service
 
@@ -76,40 +102,58 @@ cp .env.example .env   # then fill in the values
 uv run python scripts/check_setup.py
 ```
 
-Expected output (the Anthropic line is optional):
-
-```
-PASS voyage     voyage-4-lite, dim=1024
-PASS mongo      ping, insert, vector index (~50 s), $vectorSearch top hit: 'a bird flies to a tree'
-PASS openai     gpt-5.4-mini: {"ok": true}
-PASS elevenlabs scribe_v2: 'This gesture means fly over there bouncing'
-```
-
-You can check one service at a time: `uv run python scripts/check_setup.py mongo`. The Mongo check creates
-and then drops a temporary `_setup_check` collection.
+Expected: `PASS` for `voyage`, `mongo` (creates a vector index, ~50 s), and `openai`. `anthropic` and
+`elevenlabs` are optional. Check one service with `uv run python scripts/check_setup.py mongo`.
 
 ### 5. Run the app
 
-*TBD (hackathon day).*
+```bash
+uv run uvicorn app.main:app --port 8000
+```
+
+Open <http://localhost:8000/?project=demo>. Each `?project=` name is an independent story with its own
+characters, behavior library and routing policy. The app creates the collections, indexes and the
+vector search index on first start; the vector index takes about a minute to become queryable.
+
+1. **✏️ Ink**: draw a character, type its name in the name box, press Enter.
+2. Type a command, e.g. `the hare and the tortoise race to the tree`, and press **Animate ▶**.
+3. **➰ Path** / **✳️ Gesture**: draw, optionally type, then Animate. **🧽 Erase** is a lasso.
+4. **＋ scene** continues the story. **▶▶ Play story** plays every scene.
+5. Try `the tortoise should always plod a bit faster` to see a refinement proposal.
+
+Tests: `uv run pytest`.
 
 ### 6. Optional: Claude Code with the MongoDB plugin
 
-The repo's [`.claude/settings.json`](.claude/settings.json) enables MongoDB's official
-`mongodb-atlas` plugin: the hosted MongoDB MCP server plus MongoDB agent skills. When you open the
-repo in Claude Code, accept the plugin, then run `/mcp` → `plugin:mongodb-atlas:mongodb-atlas` →
-**Authenticate** and sign in with your Atlas account. Restart the session to load the tools. The app
-itself doesn't need this.
+The repo's [`.claude/settings.json`](.claude/settings.json) enables MongoDB's official `mongodb-atlas`
+plugin: the hosted MongoDB MCP server plus MongoDB agent skills. Open the repo in Claude Code, accept the
+plugin, run `/mcp` → `plugin:mongodb-atlas:mongodb-atlas` → **Authenticate**, then restart the session.
+The app itself doesn't need this.
 
-## Data model
+## Data model (database `sketch_harness`)
 
-*TBD.* Planned collections: `entities`, `scenes`, `behaviors` (one doc per version), `examples`, `events`,
-`harness_config` (see [`prep/design.md`](prep/design.md)).
+| Collection | One document per | Notable fields |
+|---|---|---|
+| `projects` | story | `name` |
+| `entities` | character | vector `strokes` (local coords), `bbox`, learned `traits` |
+| `scenes` | scene | `added` / `removed` (own changes), derived `start_state`, `timeline` of clips (behavior + pinned version, params + sources, path, keyframes, `route`) |
+| `behaviors` | behavior **version** | `program` (motion DSL), `params` (ranges, cues), `parent_version`, `reason`, `diff`, `evidence`, `tests`, `regression`, `stats` |
+| `examples` | authored instance | text, path/gesture templates, chosen behavior@version, params, `outcome` (pending/accepted/undone), `route`, `text_vec` (Voyage, Vector Search) |
+| `proposals` | refinement proposal | candidate version, diff, regression checks, scope guess + reason, status |
+| `harness_config` | routing-policy version | `fast_path.min_score`, `min_examples`, `reason`, `evidence` |
+| `events` | everything that happened | commands (route, latency, LLM tokens), acceptances, deletions, config changes, re-simulations |
+
+Nothing is overwritten when the harness changes itself: new behavior and policy versions are new
+documents.
 
 ## Repo layout
 
 ```
-prep/          design docs (design, motion DSL, storyboard) + early brainstorm, hackathon plan, setup status, day schedule
-scripts/           check_setup.py (service smoke test), voyage.py (embedding demo), sandbox.* (unrelated CoreWeave notes)
-.claude/           Claude Code project settings (MongoDB plugin)
-.env.example       required environment variable names
+app/        main.py (API) · harness.py (routing, LLM decision, clips) · dsl.py (schema + evaluator)
+            refine.py (diff, regression replay, scope) · scenes.py (continuity, re-simulation)
+            memory.py (Voyage + Vector Search, harness_config) · recognizer.py ($P) · geometry.py · llm.py · db.py
+static/     index.html · app.js · style.css (canvas UI, playback, inspector, learning curve)
+tests/      DSL, geometry, recognizer, refinement and scene tests
+prep/       pre-event design docs, plan, storyboard, judging notes, guide, sandbox.md (unrelated CoreWeave notes)
+scripts/    check_setup.py (service smoke test), voyage.py, sandbox.py (unrelated CoreWeave sample)
 ```

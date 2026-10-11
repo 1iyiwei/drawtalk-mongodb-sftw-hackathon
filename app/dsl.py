@@ -179,7 +179,7 @@ def evaluate(node: dict, state: list[float], ctx: Ctx) -> tuple[list[list[float]
         n = _n_frames(val(node["duration"], ctx, 1.0))
         return [list(state) for _ in range(n + 1)], []
     if t == "move_along":
-        if node["path"] == "stroke" and ctx.path_stroke:
+        if ctx.path_stroke:  # a drawn path always wins over the program's default path
             pts = ctx.path_stroke
         else:
             pts = ctx.path_default or [(state[0], state[1]), (state[0], state[1])]

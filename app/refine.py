@@ -112,8 +112,38 @@ def retime(timeline: list[dict]) -> list[dict]:
 # ---------------------------------------------------------------- propose / apply
 
 
+def keep_param_refs(old: object, new: object, params: list[dict], fixes: list[str], path: str = "program") -> object:
+    """Guardrail: if a refinement replaced a {"param": x} with a literal number, restore the parameter and move
+    the number into x's default. A literal would silently erase every clip's own value."""
+    if isinstance(old, dict) and set(old) == {"param"} and isinstance(new, (int, float)) and not isinstance(new, bool):
+        spec = next((p for p in params if p["name"] == old["param"]), None)
+        if spec:
+            spec["default"] = new
+            spec["min"], spec["max"] = min(spec["min"], new), max(spec["max"], new)
+            fixes.append(f"{path}: kept ${old['param']} (default → {new:g}) instead of a fixed {new:g}")
+            return {"param": old["param"]}
+        return new
+    if isinstance(old, dict) and isinstance(new, dict) and old.get("type") == new.get("type"):
+        return {k: keep_param_refs(old.get(k), v, params, fixes, f"{path}.{k}") for k, v in new.items()}
+    if isinstance(old, list) and isinstance(new, list) and len(old) == len(new):
+        return [keep_param_refs(o, n, params, fixes, f"{path}[{i}]") for i, (o, n) in enumerate(zip(old, new))]
+    return new
+
+
 async def propose(project_id: str, scene_id: str, text: str, current: dict, refine: dict, command_event: str,
                   entities: dict[str, dict]) -> dict:
+    fixes: list[str] = []
+    refine["program"] = keep_param_refs(current["program"], refine["program"], refine["params"], fixes)
+    # a changed default shifts each clip by the same ratio, so widen the range by that ratio too (no clamping)
+    old_defaults = {p["name"]: p for p in current["params"]}
+    for spec in refine["params"]:
+        o = old_defaults.get(spec["name"])
+        if o and o["default"] and spec["default"] != o["default"]:
+            r = spec["default"] / o["default"]
+            lo, hi = sorted((o["min"] * r, o["max"] * r))
+            if hi > spec["max"] or lo < spec["min"]:
+                spec["min"], spec["max"] = round(min(spec["min"], lo), 2), round(max(spec["max"], hi), 2)
+                fixes.append(f"{spec['name']} range widened to [{spec['min']:g}, {spec['max']:g}] to keep each clip's own value")
     names = {p["name"] for p in refine["params"]}
     dsl.validate(refine["program"], names)
     candidate = {
@@ -141,7 +171,7 @@ async def propose(project_id: str, scene_id: str, text: str, current: dict, refi
         "text": text, "behavior_id": current["behavior_id"], "from_version": current["version"],
         "candidate": candidate, "old_params": current["params"], "diff": lines, "change_summary": refine["change_summary"],
         "scope_guess": refine["scope_guess"], "scope_reason": refine["scope_reason"], "actor": refine["actor"],
-        "checks": checks, "command_event": command_event, "created": db.now(),
+        "checks": checks, "guardrail_fixes": fixes, "command_event": command_event, "created": db.now(),
     }
     await db.col("proposals").insert_one(proposal)
     return proposal

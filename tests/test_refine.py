@@ -34,3 +34,13 @@ def test_scaled_overrides_follow_default_ratio():
     clip = {"params": {"speed": 55}}
     new = [{**V1["params"][0], "default": 120}]
     assert refine.scaled_overrides(clip, V1["params"], new) == {"speed": 110}
+
+
+def test_guardrail_restores_param_reference():
+    import copy
+    params = copy.deepcopy(V1["params"])
+    new_prog = copy.deepcopy(V1["program"])
+    new_prog["base"]["speed"] = 105
+    fixes = []
+    out = refine.keep_param_refs(V1["program"], new_prog, params, fixes)
+    assert out["base"]["speed"] == {"param": "speed"} and params[0]["default"] == 105 and fixes

@@ -1,5 +1,27 @@
 # Design
 
+> Written before the event (Oct 10). The section below records how the design changed while building
+> (Oct 11); the rest is the original design.
+
+## As built (Oct 11): changes from the original design
+
+- **Three stroke kinds, as separate modes**: *Ink* (drawing characters), *Path* (where to go) and
+  *Gesture* (a drawn word for how to move, attached to the nearest character). A path's shape is only
+  the trajectory. A gesture's shape is its meaning. This keeps "where" and "how" independent: a straight
+  path plus a hop gesture means hopping along a straight line.
+- **Text-free routing without the LLM**: a gesture is matched by shape ($P) against taught gestures; a
+  path alone uses the character's learned habit. An unknown gesture with no text asks to be taught
+  instead of guessing.
+- **Routing policy is versioned and self-tuned** (`harness_config`): accepted fast-path guesses relax the
+  threshold, and undone ones tighten it.
+- **Scene starts are derived, not copied**: each scene stores its own additions/removals. When an earlier
+  scene changes, later scenes re-simulate their clips with the pinned behavior versions.
+- **Refinement** scales each existing clip's parameters by the change in the default (so "faster" speeds
+  every clip up while keeping their differences). Regression replay checks that each clip still ends
+  where the story needs it.
+- **Timing**: one per-command field (`together` / `in_order`), plus a per-clip toggle in the UI.
+- **Voice dropped** for the event (noisy venue); text input only.
+
 ## Guiding principle: adaptive defaults that stay visible and controllable
 
 Every adaptation follows the same loop: **guess → show → confirm/override → learn**.

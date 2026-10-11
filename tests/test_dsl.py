@@ -70,3 +70,9 @@ def test_direction_path_stays_on_canvas():
     actor = {"bbox": [-20, -20, 20, 20]}
     path = geometry.direction_path({"x": 900, "y": 300}, actor, "right", 600)
     assert path[-1] == (980, 300)
+
+
+def test_drawn_path_overrides_default_path():
+    c = dsl.Ctx(params={"speed": 100}, path_default=None, path_stroke=[(0.0, 0.0), (0.0, 180.0)])
+    out = dsl.run(DASH, {"x": 0, "y": 0}, c)
+    assert abs(out["end_state"]["y"] - 180) < 1 and out["duration"] > 1.5

@@ -270,3 +270,44 @@ async def metrics(project_id: str, window: int = 5):
             "versions": sum(h["kind"] == "behavior" for h in history),
         },
     }
+
+
+class TimingIn(BaseModel):
+    project_id: str
+    scene_id: str
+    clip_id: str
+    mode: str  # "with_previous" | "after_previous"
+
+
+@app.post("/api/clips/timing")
+async def clip_timing(body: TimingIn):
+    """Make a clip run together with the previous clip group, or after it. Then re-simulate."""
+    sc = await db.col("scenes").find_one({"_id": body.scene_id, "project_id": body.project_id})
+    if not sc:
+        raise HTTPException(404, "scene not found")
+    tl = sorted(sc.get("timeline", []), key=lambda c: c["start"])
+    idx = next((i for i, c in enumerate(tl) if c["clip_id"] == body.clip_id), None)
+    if idx is None or idx == 0:
+        raise HTTPException(400, "the first clip has nothing before it")
+    clip, prev = tl[idx], tl[idx - 1]
+    if body.mode == "with_previous":
+        clip["start"] = prev["start"]
+    else:  # its own group right after the previous group
+        clip["start"] = prev["start"] + 1e-3
+        for c in tl[idx + 1:]:
+            c["start"] += 2e-3  # keep later groups after it
+    await db.col("scenes").update_one({"_id": body.scene_id}, {"$set": {"timeline": tl}})
+    await scene_logic.resolve_project(body.project_id, dirty={body.scene_id})
+    await db.log_event(body.project_id, "clip_retimed", scene_id=body.scene_id, clip_id=body.clip_id, mode=body.mode,
+                       background=True)
+    return {"ok": True}
+
+
+@app.get("/api/projects")
+async def projects():
+    """Projects with activity counts, newest first (for the project switcher)."""
+    out = []
+    async for p in db.col("projects").find({}, {"name": 1, "created": 1}).sort("created", -1):
+        n = await db.col("events").count_documents({"project_id": p["_id"], "type": "command"})
+        out.append({"name": p["name"], "commands": n})
+    return out

@@ -41,9 +41,32 @@ async function load(projectName) {
   app.project = st.project; app.scenes = st.scenes; app.behaviors = st.behaviors;
   app.entities = Object.fromEntries(st.entities.map((e) => [e._id, e]));
   if (!app.sceneId || !scene()) app.sceneId = app.scenes[app.scenes.length - 1]._id;
-  $("project-name").textContent = app.project.name;
+  renderProjectSelect();
   renderAll();
 }
+
+async function renderProjectSelect() {
+  const sel = $("project-select");
+  let list = [];
+  try { list = await api("/api/projects"); } catch {}
+  const names = list.map((p) => p.name);
+  if (!names.includes(app.project.name)) list.unshift({ name: app.project.name, commands: 0 });
+  // hide scratch projects from the dry runs unless one is open
+  sel.innerHTML = list.filter((p) => !/^(dev-|dry-)/.test(p.name) || p.name === app.project.name)
+    .map((p) => `<option value="${p.name}" ${p.name === app.project.name ? "selected" : ""}>${p.name} (${p.commands})</option>`).join("")
+    + '<option value="__new">＋ new story…</option>';
+}
+$("project-select").onchange = (e) => {
+  let name = e.target.value;
+  if (name === "__new") { name = prompt("Name for the new story (e.g. demo-2):"); if (!name) return renderProjectSelect(); }
+  location.search = "?project=" + encodeURIComponent(name.trim());
+};
+$("show-learning").onclick = () => {
+  const box = document.querySelector(".viz-root");
+  $("history-box").open = true;
+  box.scrollIntoView({ behavior: "smooth", block: "start" });
+  box.classList.add("spot"); setTimeout(() => box.classList.remove("spot"), 1600);
+};
 
 // ------------------------------------------------------------------ rendering
 function el(tag, attrs = {}, parent) {
@@ -114,9 +137,10 @@ function renderPaths(sc) {
 
 function renderClipList(sc) {
   const ol = $("clip-list"); ol.replaceChildren();
-  const nums = clipNumbers(sc.timeline || []);
+  const ordered = [...(sc.timeline || [])].sort((a, b) => a.start - b.start);
+  const nums = clipNumbers(ordered);
   if (!sc.timeline?.length) { ol.innerHTML = '<li class="muted" style="border:0">No clips yet.</li>'; return; }
-  sc.timeline.forEach((c, i) => {
+  ordered.forEach((c, i) => {
     const li = document.createElement("li");
     const actor = app.entities[c.actor]?.name || "?";
     const target = c.target ? ` → ${app.entities[c.target]?.name}` : "";
@@ -134,7 +158,22 @@ function renderClipList(sc) {
       await api("/api/clips/delete", { project_id: app.project._id, scene_id: sc._id, clip_id: c.clip_id });
       await load(app.project.name); status("clip deleted; later clips re-simulated");
     };
-    li.prepend(del); li.append(chips); ol.append(li);
+    li.prepend(del);
+    if (i > 0) {
+      const sorted = [...sc.timeline].sort((a, b) => a.start - b.start);
+      const k = sorted.findIndex((x) => x.clip_id === c.clip_id), prev = sorted[k - 1];
+      const together = prev && Math.abs(prev.start - c.start) < 1e-6;
+      const tg = document.createElement("button"); tg.className = "del timing";
+      tg.textContent = together ? "⇢ after" : "⇉ together";
+      tg.title = together ? "Run after the previous clip instead" : "Run at the same time as the previous clip";
+      tg.onclick = async () => {
+        await api("/api/clips/timing", { project_id: app.project._id, scene_id: sc._id, clip_id: c.clip_id, mode: together ? "after_previous" : "with_previous" });
+        await load(app.project.name);
+        status(together ? "now runs after the previous clip" : "now runs together with the previous clip");
+      };
+      li.prepend(tg);
+    }
+    li.append(chips); ol.append(li);
   });
 }
 

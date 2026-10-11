@@ -116,7 +116,7 @@ embeddings and keep only the intent and skill-compiler calls on an outside LLM.
 - Voice is optional (browser Web Speech API if it's free to add). A text box is enough.
 - One user, and no auth.
 
-## Judging (read `ideation/judging.md`)
+## Judging (read `prep/judging.md`)
 
 **A live 3-min demo + Q&A is what gets scored** (impact 20 / demo 35 / creativity 15 / difficulty 30; equal weights
 in round 2). The 1-min video is only a submission requirement. Changes from that: impact framing up front,
