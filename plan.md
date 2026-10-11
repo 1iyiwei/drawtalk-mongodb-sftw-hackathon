@@ -123,20 +123,28 @@ in round 2). The 1-min video is only a submission requirement. Changes from that
 a "why trace" in the inspector, a rehearsal project for the learning curve, demo-proofing, and a cut order
 that keeps depth.
 
-## Day plan (solo, ≈9:30–17:00 build): thin end-to-end slice first
+## Day plan (solo): hacking 10:30–16:45, **submissions due 17:00**
 
-Design lives in `ideation/design.md`, `ideation/motion-dsl.md` and `ideation/storyboard.md`.
+From the official guide (`ideation/guide.md`): doors 9:00, kick-off 10:00, **hacking begins 10:30**,
+lunch 13:00, **submissions due 17:00**, round 1 judging 17:00–18:45, finals 19:00–20:00. That's about 6 h of
+building, ~1 h less than the earlier plan. No app code before 10:30.
+
+Design lives in `ideation/design.md`, `ideation/motion-dsl.md`, `ideation/storyboard.md`, `ideation/judging.md`.
 
 | time | goal | done when |
 |---|---|---|
-| 9:30–10:00 | Venue IP on the access list, `check_setup.py` green, FastAPI serves a static page | page loads, Mongo ping ok |
-| 10:00–11:30 | **Slice v0**: SVG canvas captures strokes → lasso + name an entity → text box "the hare runs to the tree" → LLM picks a hand-written `dash` behavior → Python evaluator → keyframes play. Everything written to `entities`, `scenes`, `examples`, `events` | the text-only shot works once, end to end |
-| 11:30–12:45 | LLM can **create** behaviors (DSL + schema validation), parameter fusion with source chips, clip list + badges | shots 1–2 work (race, nap taught with stroke + text) |
-| 12:45–13:30 | Scenes: `+ scene` with continuity, scene strip, Play story | the 3-scene skeleton plays |
-| 13:30–14:45 | **Refine**: scope chip → behavior v2 + diff, regression replay, propagation toast; inspector shows docs + diff | shot 3 works |
-| 14:45–15:45 | **Fast path**: $P templates + `$vectorSearch` over examples → stroke-only match with no LLM call; **why trace** + learning-curve chart from `events` | shot 4 works; chart shows real data |
-| 15:45–16:15 | Mic (ElevenLabs Scribe), polish, rehearse the **3-min live script** in the rehearsal project (this makes learning-curve data) | full run without errors |
-| 16:15– | Freeze. Record 2–3 takes, cut to 60 s, README (architecture + collections), make the repo public, submit early | submitted |
+| 9:00–10:30 | Check in (photo ID), venue Wi-Fi, **add venue + phone-hotspot IPs** in Atlas, `check_setup.py` green, retry Agent Engine (≤ 10 min), Raindrop key if offered, 10 s test recording. **No app code.** | all checks pass |
+| 10:30–12:00 | **Slice v0**: FastAPI + SVG canvas captures strokes → lasso + name an entity → "the hare runs to the tree" → LLM picks a hand-written `dash` → Python evaluator → keyframes play. Writes `entities`, `scenes`, `examples`, `events` | text-only shot works end to end |
+| 12:00–13:15 | LLM **creates** behaviors (DSL + schema validation), parameter fusion with source chips, clip list + badges (eat lunch at the desk) | race + nap taught |
+| 13:15–13:45 | `+ scene` with continuity, scene strip, Play story (minimal) | 3 scenes play |
+| 13:45–14:45 | **Refine**: scope chip → behavior v2 + diff, regression replay; propagation as a simple message | shot 3 works |
+| 14:45–15:30 | **Fast path** ($P + `$vectorSearch`) with no LLM call; **why trace**; learning-curve chart from `events` | shot 4 works |
+| 15:30–16:00 | Rehearse the 3-min script 2× in the rehearsal project (makes the curve data). Mic only if everything else is solid | clean run |
+| 16:00–16:45 | **Freeze.** Record the 1-min video, README (incl. **what was built when**), make the repo public, **submit by 16:45** | submitted |
+
+Prize note: **Raindrop RSI Prize ($3k, Recursive Self-Improvement)** fits our core pitch exactly. A cheap way
+to qualify: send every action, routing decision and correction to Raindrop (`raindrop-ai` Python SDK) and
+point at it in the demo. Do it only after the core works (~20 min).
 
 Stretch goals, in order: front-end animation engine (send the program, not frames) · speed variation along
 the stroke · Agent Engine memory (if the CLI downloads) · alternate versions of scenes.

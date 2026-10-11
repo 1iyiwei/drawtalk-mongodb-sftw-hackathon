@@ -13,8 +13,9 @@ the current schedule and status.
 
 ## Rules
 
-- **Hackathon rules**: all app code is written on Oct 11 2026 in the Atlas Hackathon Sandbox project. The
-  repo becomes public at submission.
+- **Hackathon rules**: all app code is written on Oct 11 2026 (hacking starts 10:30, submissions due 17:00) in the
+  Atlas Hackathon Sandbox project. The repo becomes public at submission. Keep the README's "what was built
+  when" table current.
 - **Secrets** live only in `.env` (git-ignored). `.env.example` lists names with empty values. Never print,
   log, commit or send key values or the full `MONGODB_URI`. Logs record ids, types and counts.
 - **Motion is described only by the motion DSL** (`ideation/motion-dsl.md`): JSON checked against a schema.

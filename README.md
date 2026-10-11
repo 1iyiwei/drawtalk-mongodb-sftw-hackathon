@@ -19,6 +19,19 @@ tools that don't need an LLM call.
 > Status: setup and design done before the event; the app is being built on hackathon day.
 > Sections marked *TBD* get filled in as the parts land.
 
+## What was built when (hackathon provenance)
+
+| When | What |
+|---|---|
+| Before the event (Oct 10) | design documents in `ideation/` and `plan.md`; environment setup (`pyproject.toml`, `.env.example`, `.claude/settings.json`); service smoke test `scripts/check_setup.py`; `scripts/voyage.py` |
+| During the event (Oct 11, from 10:30) | **all application code**: *TBD, list directories here* |
+
+The concept is inspired by the author's prior research prototypes (DrawTalking, Narrative Motion Blocks):
+sketch + speech to animate drawings with a preset motion library. **No code, data or assets from those
+projects are used here.** What's new is the agent harness: behaviors learned instead of preset, versioned,
+regression-tested self-modification, fast-path compilation, and long-horizon memory in MongoDB. The git
+history shows the timeline.
+
 ## Stack
 
 | Layer | Tech |

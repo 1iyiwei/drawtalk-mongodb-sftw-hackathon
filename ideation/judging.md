@@ -13,6 +13,16 @@ The 1-minute video is a submission requirement. The **live demo** decides the sc
 In round 2, weights are equal (25% each), so **impact gains 5 points and difficulty loses 5**. The framing
 matters more on stage.
 
+## Rule: show only what was built today
+
+The guide disqualifies demos that don't clearly separate work done during the event. Say it in one line at the
+start: *"Everything you'll see was built today; it's inspired by my earlier DrawTalking research, but no code
+is reused."* The README has a "what was built when" table, and the git history backs it up. Don't show
+DrawTalking footage.
+
+Avoid the anti-project patterns: the inspector and learning curve *support* the demo. A dashboard must not be
+the main feature, so lead with the canvas.
+
 ## Impact framing (say it in the first 20 seconds)
 
 > "Agents interpret ambiguous human input (a sketch, a phrase, a gesture) with an expensive LLM call every
