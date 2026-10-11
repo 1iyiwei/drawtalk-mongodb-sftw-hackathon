@@ -85,8 +85,13 @@ def arc_path(straight: list[Point], height: float, n: int = 24) -> list[Point]:
     return [(x0 + (x1 - x0) * i / n, y0 + (y1 - y0) * i / n - height * math.sin(math.pi * i / n)) for i in range(n + 1)]
 
 
-def stroke_path(actor_state: dict, stroke_pts: list[Point]) -> list[Point]:
-    """Use the drawn stroke as the path, shifted so it starts at the actor (no jump)."""
+def stroke_path(actor_state: dict, stroke_pts: list[Point], actor: dict | None = None) -> list[Point]:
+    """Use the drawn stroke as the path.
+
+    If it starts on the actor (or no actor is given, e.g. re-simulating a stored path), shift it so it starts exactly
+    at the actor (no jump). If it starts elsewhere, keep it where it was drawn and travel to its start first."""
+    if actor is not None and not contains(entity_world_bbox(actor, actor_state), stroke_pts[0], pad=20):
+        return [(actor_state["x"], actor_state["y"])] + list(stroke_pts)
     ox, oy = stroke_pts[0][0] - actor_state["x"], stroke_pts[0][1] - actor_state["y"]
     return [(x - ox, y - oy) for x, y in stroke_pts]
 

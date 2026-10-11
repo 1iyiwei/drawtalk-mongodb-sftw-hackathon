@@ -92,3 +92,11 @@ def test_one_degree_turn_is_not_visible():
 def test_gets_up_before_moving_when_lying_down():
     out = dsl.run(DASH, {"x": 0, "y": 0, "rot": 80}, ctx(speed=300))
     assert abs(out["end_state"]["rot"]) < 1 and out["frames"][0][2] == 80
+
+
+def test_path_drawn_away_from_actor_stays_in_place():
+    actor = {"bbox": [-20, -20, 20, 20]}
+    far = geometry.stroke_path({"x": 0, "y": 0}, [(200, -150), (300, -150)], actor)
+    assert far[0] == (0, 0) and far[1] == (200, -150)  # travel to the drawn path, then follow it as drawn
+    near = geometry.stroke_path({"x": 0, "y": 0}, [(10, 5), (110, 5)], actor)
+    assert near[0] == (0, 0) and near[-1] == (100, 0)  # started on the actor: shifted to start exactly at it

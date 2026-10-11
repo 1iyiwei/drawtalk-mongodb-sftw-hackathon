@@ -599,7 +599,10 @@ async def run_command(project_id: str, scene_id: str, text: str, stroke: list | 
         elif a["direction"] != "none":
             path_default = geometry.direction_path(start, actor, a["direction"], a["distance_px"] or 250)
             trace["steps"].append(f"path: {a['direction']} {round(geometry.polyline_length(path_default))} px (no target)")
-        path_stroke = geometry.stroke_path(start, [(p[0], p[1]) for p in stroke]) if stroke and a["path"] == "stroke" else None
+        path_stroke = geometry.stroke_path(start, [(p[0], p[1]) for p in stroke], actor) if stroke and a["path"] == "stroke" else None
+        if path_stroke and len(path_stroke) == len(stroke) + 1:
+            trace["steps"].append(f"path starts away from {actor['name']}: it goes to the start of your path first, "
+                                  f"then follows it where you drew it")
 
         ctx = dsl.Ctx(params=params, path_default=path_default, path_stroke=path_stroke, clamps=clamps)
         result = dsl.run(b["program"], start, ctx)
