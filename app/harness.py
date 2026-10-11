@@ -214,6 +214,22 @@ def catalog_text(behaviors: dict[str, dict]) -> str:
     return "\n".join(lines)
 
 
+def undefined_behaviors(decision: dict, behaviors: dict) -> list[str]:
+    """Actions that would be skipped: an unknown behavior with no definition, or an invalid new program."""
+    out = []
+    for a in decision.get("actions", []):
+        nb = a.get("new_behavior")
+        known = normalize_id(a.get("behavior_id") or "") in behaviors
+        if not nb and not known:
+            out.append(f"{a['actor']}'s behavior '{a.get('behavior_id')}' is not in the catalog and has no definition")
+        elif nb:
+            try:
+                dsl.validate(nb["program"], {p["name"] for p in nb["params"]})
+            except dsl.DSLError as e:
+                out.append(f"{a['actor']}'s new behavior '{a.get('behavior_id')}' is invalid: {e}")
+    return out
+
+
 def invisible_new_behaviors(decision: dict) -> list[str]:
     """Test-run each newly created behavior with its own parameter values on a 300 px straight path."""
     out = []
@@ -229,7 +245,7 @@ def invisible_new_behaviors(decision: dict) -> list[str]:
             res = dsl.run(nb["program"], start, dsl.Ctx(params=params, path_default=[(100.0, 300.0), (400.0, 300.0)]))
             vis = dsl.visible_change(res, start)
             if not vis["visible"]:
-                out.append(f"{a['behavior_id']} (moved {vis['move_px']} px, rotated {vis['rotate_deg']}°, "
+                out.append(f"new behavior {a['behavior_id']} has no visible motion (moved {vis['move_px']} px, rotated {vis['rotate_deg']}°, "
                            f"scaled {vis['scale']}, faded {vis['fade']}, {vis['glyphs']} glyphs)")
         except dsl.DSLError:
             continue  # rejected later with its own message
@@ -450,15 +466,17 @@ async def run_command(project_id: str, scene_id: str, text: str, stroke: list | 
         decision, meta = await asyncio.to_thread(llm.structured, SYSTEM, user, "motion_decision", decision_schema(list(by_name)))
         route = "llm"
         mark("llm")
-        problems = invisible_new_behaviors(decision)
+        problems = invisible_new_behaviors(decision) + undefined_behaviors(decision, behaviors)
         if problems:  # the harness checks its own new tools before using them, and asks for a fix once
-            self_check = [f"self-check: new behavior {p} → asked the LLM to fix it" for p in problems]
+            self_check = [f"self-check: {p} → asked the LLM to fix it" for p in problems]
             decision, meta2 = await asyncio.to_thread(
                 llm.structured, SYSTEM, user + "\n\nYour previous answer created behaviors with NO VISIBLE MOTION: "
-                + "; ".join(problems) + ". Fix the programs (angles are degrees; spins use rotate_by 360 per turn).",
+                + "; ".join(problems) + ". Fix them: every action must apply an existing catalog behavior or define a "
+                "new one with a valid program (angles are degrees; spins use rotate_by 360 per turn; disappearing = "
+                "fade_to opacity 0).",
                 "motion_decision", decision_schema(list(by_name)))
             meta = {**meta2, "latency_ms": meta["latency_ms"] + meta2["latency_ms"], "retried": True}
-            still = invisible_new_behaviors(decision)
+            still = invisible_new_behaviors(decision) + undefined_behaviors(decision, behaviors)
             self_check.append("self-check: fixed ✓" if not still else f"self-check: still invisible: {'; '.join(still)}")
             mark("llm_retry")
     route_info = {"route": route, "fast_match": fast and {k: v for k, v in fast.items() if k != "decision"},
