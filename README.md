@@ -12,9 +12,9 @@ tools that don't need an LLM call.
 - Problem statements: **Recursive Harnessing** (the harness rewrites its own tools, routing and rules) and
   **Long Horizon Engineering** (multi-scene stories with character memory, version pinning and learning
   curves from hard signals).
-- Design: [`ideation/design.md`](ideation/design.md) · motion DSL: [`ideation/motion-dsl.md`](ideation/motion-dsl.md)
-  · demo script: [`ideation/storyboard.md`](ideation/storyboard.md) · build plan: [`plan.md`](plan.md)
-  · early brainstorm: [`ideation/gemini.md`](ideation/gemini.md)
+- [Design](ideation/design.md) · [motion DSL](ideation/motion-dsl.md)
+  · [demo script](ideation/storyboard.md) · [build plan](ideation/plan.md)
+  · [early brainstorm](ideation/gemini.md)
 
 > Status: setup and design done before the event; the app is being built on hackathon day.
 > Sections marked *TBD* get filled in as the parts land.
