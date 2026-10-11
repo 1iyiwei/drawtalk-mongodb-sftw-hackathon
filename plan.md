@@ -116,17 +116,23 @@ embeddings and keep only the intent and skill-compiler calls on an outside LLM.
 - Voice is optional (browser Web Speech API if it's free to add). A text box is enough.
 - One user, and no auth.
 
-## Day plan (solo, ≈9:30–17:00 build)
+## Day plan (solo, ≈9:30–17:00 build): thin end-to-end slice first
 
-| time | goal |
-|---|---|
-| 9:30–10:15 | Sandbox cluster + DB user, MCP connected, public repo created, FastAPI + static SVG canvas page |
-| 10:15–11:45 | Stroke capture, group + label objects, motion DSL runtime (6 primitives), hand-written skill plays |
-| 11:45–13:15 | Intent agent + skill compiler (LLM → DSL JSON, validated), "teach" works end to end |
-| 13:15–14:15 | $P recognizer + gesture templates in Mongo, "reuse" works |
-| 14:15–15:45 | Feedback events → optimizer → skill v2 + policy; inspector panel with version lineage |
-| 15:45–16:30 | Agent Engine memory or Vector Search for "like the cloud did", **only if solid** |
-| 16:30– | Freeze. Record the 1-min video (2–3 takes), README with architecture + collections, submit early |
+Design lives in `ideation/design.md`, `ideation/motion-dsl.md` and `ideation/storyboard.md`.
+
+| time | goal | done when |
+|---|---|---|
+| 9:30–10:00 | Venue IP on the access list, `check_setup.py` green, FastAPI serves a static page | page loads, Mongo ping ok |
+| 10:00–11:30 | **Slice v0**: SVG canvas captures strokes → lasso + name an entity → text box "the hare runs to the tree" → LLM picks a hand-written `dash` behavior → Python evaluator → keyframes play. Everything written to `entities`, `scenes`, `examples`, `events` | the text-only shot works once, end to end |
+| 11:30–12:45 | LLM can **create** behaviors (DSL + schema validation), parameter fusion with source chips, clip list + badges | shots 1–2 work (race, nap taught with stroke + text) |
+| 12:45–13:30 | Scenes: `+ scene` with continuity, scene strip, Play story | the 3-scene skeleton plays |
+| 13:30–14:45 | **Refine**: scope chip → behavior v2 + diff, regression replay, propagation toast; inspector shows docs + diff | shot 3 works |
+| 14:45–15:45 | **Fast path**: $P templates + `$vectorSearch` over examples → stroke-only match with no LLM call; learning-curve chart from `events` | shot 4 works; chart shows real data |
+| 15:45–16:15 | Mic (ElevenLabs Scribe), polish, rehearse the script twice (this also makes learning-curve data) | full run without errors |
+| 16:15– | Freeze. Record 2–3 takes, cut to 60 s, README (architecture + collections), make the repo public, submit early | submitted |
+
+Stretch goals, in order: front-end animation engine (send the program, not frames) · speed variation along
+the stroke · Agent Engine memory (if the CLI downloads) · alternate versions of scenes.
 
 ## Prep tonight (setup only, no app code)
 
