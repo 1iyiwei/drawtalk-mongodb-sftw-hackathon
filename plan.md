@@ -116,6 +116,13 @@ embeddings and keep only the intent and skill-compiler calls on an outside LLM.
 - Voice is optional (browser Web Speech API if it's free to add). A text box is enough.
 - One user, and no auth.
 
+## Judging (read `ideation/judging.md`)
+
+**A live 3-min demo + Q&A is what gets scored** (impact 20 / demo 35 / creativity 15 / difficulty 30; equal weights
+in round 2). The 1-min video is only a submission requirement. Changes from that: impact framing up front,
+a "why trace" in the inspector, a rehearsal project for the learning curve, demo-proofing, and a cut order
+that keeps depth.
+
 ## Day plan (solo, ≈9:30–17:00 build): thin end-to-end slice first
 
 Design lives in `ideation/design.md`, `ideation/motion-dsl.md` and `ideation/storyboard.md`.
@@ -127,8 +134,8 @@ Design lives in `ideation/design.md`, `ideation/motion-dsl.md` and `ideation/sto
 | 11:30–12:45 | LLM can **create** behaviors (DSL + schema validation), parameter fusion with source chips, clip list + badges | shots 1–2 work (race, nap taught with stroke + text) |
 | 12:45–13:30 | Scenes: `+ scene` with continuity, scene strip, Play story | the 3-scene skeleton plays |
 | 13:30–14:45 | **Refine**: scope chip → behavior v2 + diff, regression replay, propagation toast; inspector shows docs + diff | shot 3 works |
-| 14:45–15:45 | **Fast path**: $P templates + `$vectorSearch` over examples → stroke-only match with no LLM call; learning-curve chart from `events` | shot 4 works; chart shows real data |
-| 15:45–16:15 | Mic (ElevenLabs Scribe), polish, rehearse the script twice (this also makes learning-curve data) | full run without errors |
+| 14:45–15:45 | **Fast path**: $P templates + `$vectorSearch` over examples → stroke-only match with no LLM call; **why trace** + learning-curve chart from `events` | shot 4 works; chart shows real data |
+| 15:45–16:15 | Mic (ElevenLabs Scribe), polish, rehearse the **3-min live script** in the rehearsal project (this makes learning-curve data) | full run without errors |
 | 16:15– | Freeze. Record 2–3 takes, cut to 60 s, README (architecture + collections), make the repo public, submit early | submitted |
 
 Stretch goals, in order: front-end animation engine (send the program, not frames) · speed variation along
