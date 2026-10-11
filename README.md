@@ -12,9 +12,9 @@ tools that don't need an LLM call.
 - Problem statements: **Recursive Harnessing** (the harness rewrites its own tools, routing and rules) and
   **Long Horizon Engineering** (multi-scene stories with character memory, version pinning and learning
   curves from hard signals).
-- [Design](ideation/design.md) · [motion DSL](ideation/motion-dsl.md)
-  · [demo script](ideation/storyboard.md) · [build plan](ideation/plan.md)
-  · [early brainstorm](ideation/gemini.md)
+- [Design](prep/design.md) · [motion DSL](prep/motion-dsl.md)
+  · [demo script](prep/storyboard.md) · [build plan](prep/plan.md)
+  · [early brainstorm](prep/gemini.md)
 
 > Status: setup and design done before the event; the app is being built on hackathon day.
 > Sections marked *TBD* get filled in as the parts land.
@@ -23,7 +23,7 @@ tools that don't need an LLM call.
 
 | When | What |
 |---|---|
-| Before the event (Oct 10) | design documents in `ideation/` and `plan.md`; environment setup (`pyproject.toml`, `.env.example`, `.claude/settings.json`); service smoke test `scripts/check_setup.py`; `scripts/voyage.py` |
+| Before the event (Oct 10) | design documents in `prep/`; environment setup (`pyproject.toml`, `.env.example`, `.claude/settings.json`); service smoke test `scripts/check_setup.py`; `scripts/voyage.py` |
 | During the event (Oct 11, from 10:30) | **all application code**: *TBD, list directories here* |
 
 The concept is inspired by the author's prior research prototypes (DrawTalking, Narrative Motion Blocks):
@@ -103,13 +103,12 @@ itself doesn't need this.
 ## Data model
 
 *TBD.* Planned collections: `entities`, `scenes`, `behaviors` (one doc per version), `examples`, `events`,
-`harness_config` (see [`ideation/design.md`](ideation/design.md)).
+`harness_config` (see [`prep/design.md`](prep/design.md)).
 
 ## Repo layout
 
 ```
-ideation/          design docs (design, motion DSL, storyboard) + early brainstorm
-plan.md            hackathon plan, setup status, day schedule
+prep/          design docs (design, motion DSL, storyboard) + early brainstorm, hackathon plan, setup status, day schedule
 scripts/           check_setup.py (service smoke test), voyage.py (embedding demo), sandbox.* (unrelated CoreWeave notes)
 .claude/           Claude Code project settings (MongoDB plugin)
 .env.example       required environment variable names
