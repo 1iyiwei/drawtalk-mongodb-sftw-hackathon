@@ -22,8 +22,17 @@ vocabulary into fast, deterministic tools** that don't need an LLM call.
 ## Demo videos (recorded during the hackathon)
 
 <table>
-<tr><td align="center" width="33%"><a href="https://youtu.be/-H8eB0-2pQw"><img src="https://img.youtube.com/vi/-H8eB0-2pQw/mqdefault.jpg" width="260" alt="1-min submission: the rabbit and the turtle"></a><br><sub><b>1-min submission</b>: the rabbit and the turtle</sub></td><td align="center" width="33%"><a href="https://youtu.be/F-DWj3uXoY4"><img src="https://img.youtube.com/vi/F-DWj3uXoY4/mqdefault.jpg" width="260" alt="Full authoring session, in real time"></a><br><sub>Full authoring session, in real time</sub></td><td align="center" width="33%"><a href="https://youtu.be/pNa1l_5tPcE"><img src="https://img.youtube.com/vi/pNa1l_5tPcE/mqdefault.jpg" width="260" alt="Frog: hopping along a drawn path"></a><br><sub>Frog: hopping along a drawn path</sub></td></tr>
-<tr><td align="center" width="33%"><a href="https://youtu.be/6RZ8EB5DQ08"><img src="https://img.youtube.com/vi/6RZ8EB5DQ08/mqdefault.jpg" width="260" alt="Windmill: wind and rotation"></a><br><sub>Windmill: with editing</sub></td><td align="center" width="33%"><a href="https://youtu.be/1l65aWUpue8"><img src="https://img.youtube.com/vi/1l65aWUpue8/mqdefault.jpg" width="260" alt="Windmill: unedited take"></a><br><sub>Windmill: without editing</sub></td><td align="center" width="33%"><a href="https://youtu.be/K0wzUBOYO1U"><img src="https://img.youtube.com/vi/K0wzUBOYO1U/mqdefault.jpg" width="260" alt="Pacman: a vanishing bean, fixes v1 → v6"></a><br><sub>Pacman: a vanishing bean, fixes v1 → v6</sub></td></tr>
+<tr><td align="center" width="50%">
+<a href="https://youtu.be/-H8eB0-2pQw"><img src="https://img.youtube.com/vi/-H8eB0-2pQw/mqdefault.jpg" width="260" alt="1-min submission: the rabbit and the turtle"></a><br><sub><b>1-min submission</b>: the rabbit and the turtle</sub></td><td align="center" width="50%"><a href="https://youtu.be/F-DWj3uXoY4"><img src="https://img.youtube.com/vi/F-DWj3uXoY4/mqdefault.jpg" width="260" alt="Full authoring session, in real time"></a><br><sub>Full authoring session, in real time</sub></td>
+</tr>
+<tr>
+<td align="center" width="50%"><a href="https://youtu.be/1l65aWUpue8"><img src="https://img.youtube.com/vi/1l65aWUpue8/mqdefault.jpg" width="260" alt="Windmill: unedited take"></a><br><sub>Windmill: without refinement</sub></td>
+<td align="center" width="50%"><a href="https://youtu.be/6RZ8EB5DQ08"><img src="https://img.youtube.com/vi/6RZ8EB5DQ08/mqdefault.jpg" width="260" alt="Windmill: wind and rotation"></a><br><sub>Windmill: with refinement</sub></td>
+</tr>
+<tr>
+<td align="center" width="50%"><a href="https://youtu.be/pNa1l_5tPcE"><img src="https://img.youtube.com/vi/pNa1l_5tPcE/mqdefault.jpg" width="260" alt="Frog: hopping along a drawn path"></a><br><sub>Frog: hopping along a drawn path</sub></td>
+<td align="center" width="50%"><a href="https://youtu.be/K0wzUBOYO1U"><img src="https://img.youtube.com/vi/K0wzUBOYO1U/mqdefault.jpg" width="260" alt="Pacman: a vanishing bean, fixes v1 → v6"></a><br><sub>Pacman: a vanishing bean, fixes v1 → v6</sub></td>
+</tr>
 </table>
 
 All videos are also in the [YouTube playlist](https://www.youtube.com/playlist?list=PLD6Astl07U8A). The raw screen
