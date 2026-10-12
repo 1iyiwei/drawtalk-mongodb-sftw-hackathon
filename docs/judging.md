@@ -42,6 +42,9 @@ action ↓, latency ↓, acceptance ↑.
 >
 > **Lesson:** concrete purpose → demo → generalization. An abstract framing only lands after the audience has
 > seen the concrete thing work.
+>
+> **Outcome:** ranked 10 / 93 despite hardware issues during the presentation; the full story is in the
+> [write-up](https://blog.liyiwei.org/2026/10/11/mongodb-hackathon/).
 
 ## Live 3-minute demo script (primary; the video is cut from it)
 

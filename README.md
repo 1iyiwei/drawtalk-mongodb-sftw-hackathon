@@ -3,6 +3,9 @@
 Built at [The Harness Engineering & Model Wrangling #SFTechWeek Hackathon](https://cerebralvalley.ai/e/mongodb-sftw-hackathon)
 (MongoDB × Cerebral Valley, Oct 11 2026).
 
+**Result:** ranked 10 / 93 ([gallery](https://cerebralvalley.ai/e/mongodb-sftw-hackathon/hackathon/gallery?project=4))
+· [write-up](https://blog.liyiwei.org/2026/10/11/mongodb-hackathon/)
+
 An animation tool that **learns your language**. You sketch 2D characters and animate them by typing
 ("the hare and the tortoise race to the tree"), drawing a path, or drawing a gesture. There's no preset
 motion library: every behavior is taught, stored as a versioned motion program in MongoDB, regression-tested
