@@ -15,9 +15,21 @@ vocabulary into fast, deterministic tools** that don't need an LLM call.
 - **Long Horizon Engineering**: multi-scene stories stay coherent while you edit them. Characters keep
   learned traits and habits, scenes derive their start from the previous scene and re-simulate when it
   changes, behavior versions are pinned per clip, and a learning curve tracks hard signals.
-- **Demo video (1 min):** https://www.youtube.com/watch?v=-H8eB0-2pQw
+- **Demos:** [1-minute video](https://youtu.be/-H8eB0-2pQw) · [all demo videos](#demo-videos-recorded-during-the-hackathon)
 - Docs: [design](prep/design.md) · [motion DSL](prep/motion-dsl.md) · [demo script](prep/storyboard.md)
   · [judging notes](prep/judging.md) · [build plan](prep/plan.md) · [early brainstorm](prep/gemini.md)
+
+## Demo videos (recorded during the hackathon)
+
+| Video | Shows |
+|---|---|
+| [**The rabbit and the turtle, 1 min**](https://youtu.be/-H8eB0-2pQw) (submission) | learning from an empty library, global vs. local refinement, a gesture taught then reused with no LLM call, the learning curve |
+| [The rabbit and the turtle, full authoring session](https://youtu.be/F-DWj3uXoY4) | the same story in real time, including the LLM waits |
+| [Windmill](https://youtu.be/6RZ8EB5DQ08) | rotation (`rotate_by`), wind and windmill moving together |
+| [Frog jumping](https://youtu.be/pNa1l_5tPcE) | hopping along a drawn path that starts away from the character |
+| [Pacman](https://youtu.be/K0wzUBOYO1U) | a path-following character, a vanishing bean, and fixing a behavior across versions (v1 → v6) |
+
+All videos are also in the [YouTube playlist](https://www.youtube.com/playlist?list=PLD6Astl07U8A).
 
 ## What was built when (hackathon provenance)
 
