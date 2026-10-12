@@ -16,26 +16,25 @@ vocabulary into fast, deterministic tools** that don't need an LLM call.
   learned traits and habits, scenes derive their start from the previous scene and re-simulate when it
   changes, behavior versions are pinned per clip, and a learning curve tracks hard signals.
 - **Demos:** [1-minute video](https://youtu.be/-H8eB0-2pQw) · [all demo videos](#demo-videos-recorded-during-the-hackathon)
-- Docs: [design](prep/design.md) · [motion DSL](prep/motion-dsl.md) · [demo script](prep/storyboard.md)
-  · [judging notes](prep/judging.md) · [build plan](prep/plan.md) · [early brainstorm](prep/gemini.md)
+- Docs: [design](docs/design.md) · [motion DSL](docs/motion-dsl.md) · [demo runbook](docs/demo.md)
+  · [judging notes + post-mortem](docs/judging.md) · [build plan](docs/plan.md) · [early brainstorm](docs/gemini.md)
 
 ## Demo videos (recorded during the hackathon)
 
-| Video | Shows |
-|---|---|
-| [**The rabbit and the turtle, 1 min**](https://youtu.be/-H8eB0-2pQw) (submission) | learning from an empty library, global vs. local refinement, a gesture taught then reused with no LLM call, the learning curve |
-| [The rabbit and the turtle, full authoring session](https://youtu.be/F-DWj3uXoY4) | the same story in real time, including the LLM waits |
-| [Windmill](https://youtu.be/6RZ8EB5DQ08) | rotation (`rotate_by`), wind and windmill moving together |
-| [Frog jumping](https://youtu.be/pNa1l_5tPcE) | hopping along a drawn path that starts away from the character |
-| [Pacman](https://youtu.be/K0wzUBOYO1U) | a path-following character, a vanishing bean, and fixing a behavior across versions (v1 → v6) |
+<table>
+<tr><td align="center" width="33%"><a href="https://youtu.be/-H8eB0-2pQw"><img src="https://img.youtube.com/vi/-H8eB0-2pQw/mqdefault.jpg" width="260" alt="1-min submission: the rabbit and the turtle"></a><br><sub><b>1-min submission</b>: the rabbit and the turtle</sub></td><td align="center" width="33%"><a href="https://youtu.be/F-DWj3uXoY4"><img src="https://img.youtube.com/vi/F-DWj3uXoY4/mqdefault.jpg" width="260" alt="Full authoring session, in real time"></a><br><sub>Full authoring session, in real time</sub></td><td align="center" width="33%"><a href="https://youtu.be/pNa1l_5tPcE"><img src="https://img.youtube.com/vi/pNa1l_5tPcE/mqdefault.jpg" width="260" alt="Frog: hopping along a drawn path"></a><br><sub>Frog: hopping along a drawn path</sub></td></tr>
+<tr><td align="center" width="33%"><a href="https://youtu.be/6RZ8EB5DQ08"><img src="https://img.youtube.com/vi/6RZ8EB5DQ08/mqdefault.jpg" width="260" alt="Windmill: wind and rotation"></a><br><sub>Windmill: with editing</sub></td><td align="center" width="33%"><a href="https://youtu.be/1l65aWUpue8"><img src="https://img.youtube.com/vi/1l65aWUpue8/mqdefault.jpg" width="260" alt="Windmill: unedited take"></a><br><sub>Windmill: without editing</sub></td><td align="center" width="33%"><a href="https://youtu.be/K0wzUBOYO1U"><img src="https://img.youtube.com/vi/K0wzUBOYO1U/mqdefault.jpg" width="260" alt="Pacman: a vanishing bean, fixes v1 → v6"></a><br><sub>Pacman: a vanishing bean, fixes v1 → v6</sub></td></tr>
+</table>
 
-All videos are also in the [YouTube playlist](https://www.youtube.com/playlist?list=PLD6Astl07U8A).
+All videos are also in the [YouTube playlist](https://www.youtube.com/playlist?list=PLD6Astl07U8A). The raw screen
+recordings are not in the repo; the short video was cut from them with `scripts/make_short.py` and the cut lists in
+`demos/*-cuts.json`.
 
 ## What was built when (hackathon provenance)
 
 | When | What |
 |---|---|
-| Before the event (Oct 10) | design documents in `prep/`; environment setup (`pyproject.toml`, `.env.example`, `.claude/settings.json`); service smoke test `scripts/check_setup.py`; `scripts/voyage.py` |
+| Before the event (Oct 10) | design documents in `prep/` (renamed `docs/` after the event); environment setup (`pyproject.toml`, `.env.example`, `.claude/settings.json`); service smoke test `scripts/check_setup.py`; `scripts/voyage.py` |
 | During the event (Oct 11, from 10:30) | **all application code**: `app/` (harness, motion DSL + evaluator, $P recognizer, refinement + regression replay, scene continuity, vector memory, routing policy, API), `static/` (canvas UI), `tests/`, `.claude/launch.json` |
 
 The concept is inspired by the author's prior research prototypes (DrawTalking, Narrative Motion Blocks):
@@ -167,6 +166,7 @@ app/        main.py (API) · harness.py (routing, LLM decision, clips) · dsl.py
             memory.py (Voyage + Vector Search, harness_config) · recognizer.py ($P) · geometry.py · llm.py · db.py
 static/     index.html · app.js · style.css (canvas UI, playback, inspector, learning curve)
 tests/      DSL, geometry, recognizer, refinement and scene tests
-prep/       pre-event design docs, plan, storyboard, judging notes, guide, sandbox.md (unrelated CoreWeave notes)
+docs/       design docs (pre-event + "as built"), plan, storyboard, demo runbook, judging notes + post-mortem,
+            submission text, event guide, sandbox.md (unrelated CoreWeave notes)
 scripts/    check_setup.py (service smoke test), voyage.py, sandbox.py (unrelated CoreWeave sample)
 ```

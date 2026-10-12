@@ -34,6 +34,15 @@ The same pattern applies to design tools, robot or drone commands, voice assista
 workflows where users keep teaching the same shorthand. Back it with numbers from the demo: LLM calls per
 action ↓, latency ↓, acceptance ↑.
 
+> **Post-mortem (after round 1, Oct 11):** during my first-round presentation, I started with the opening
+> above, which seemed to get lost with the judges; one of them later asked, "what is the project for?" In
+> hindsight, I should have started with the obvious by stating the purpose of this narrow animation tool
+> (e.g., we are trying to make animation easier to author), demonstrated the features, and then talked about
+> the broader scope.
+>
+> **Lesson:** concrete purpose → demo → generalization. An abstract framing only lands after the audience has
+> seen the concrete thing work.
+
 ## Live 3-minute demo script (primary; the video is cut from it)
 
 | Time | Beat |

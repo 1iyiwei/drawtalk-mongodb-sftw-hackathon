@@ -1,7 +1,7 @@
 # Agent notes
 
 Shared instructions for any coding agent working in this repo. Human setup and reproduction steps are in
-`README.md`. Read `prep/design.md` and `prep/motion-dsl.md` before larger changes, and `prep/plan.md` for
+`README.md`. Read `docs/design.md` and `docs/motion-dsl.md` before larger changes, and `docs/plan.md` for
 the current schedule and status.
 
 ## Commands
@@ -19,7 +19,7 @@ the current schedule and status.
   when" table current.
 - **Secrets** live only in `.env` (git-ignored). `.env.example` lists names with empty values. Never print,
   log, commit or send key values or the full `MONGODB_URI`. Logs record ids, types and counts.
-- **Motion is described only by the motion DSL** (`prep/motion-dsl.md`): JSON checked against a schema.
+- **Motion is described only by the motion DSL** (`docs/motion-dsl.md`): JSON checked against a schema.
   Never `eval` generated code in the browser. The Python evaluator is the reference implementation that
   regression tests use.
 - **Every harness self-modification is a new versioned document** (`behaviors`, `harness_config`) with

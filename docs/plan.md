@@ -116,7 +116,7 @@ embeddings and keep only the intent and skill-compiler calls on an outside LLM.
 - Voice is optional (browser Web Speech API if it's free to add). A text box is enough.
 - One user, and no auth.
 
-## Judging (read `prep/judging.md`)
+## Judging (read [judging.md](judging.md))
 
 **A live 3-min demo + Q&A is what gets scored** (impact 20 / demo 35 / creativity 15 / difficulty 30; equal weights
 in round 2). The 1-min video is only a submission requirement. Changes from that: impact framing up front,
@@ -125,11 +125,11 @@ that keeps depth.
 
 ## Day plan (solo): hacking 10:30–16:45, **submissions due 17:00**
 
-From the official guide (`ideation/guide.md`): doors 9:00, kick-off 10:00, **hacking begins 10:30**,
+From the official guide ([guide.md](guide.md)): doors 9:00, kick-off 10:00, **hacking begins 10:30**,
 lunch 13:00, **submissions due 17:00**, round 1 judging 17:00–18:45, finals 19:00–20:00. That's about 6 h of
 building, ~1 h less than the earlier plan. No app code before 10:30.
 
-Design lives in `ideation/design.md`, `ideation/motion-dsl.md`, `ideation/storyboard.md`, `ideation/judging.md`.
+Design lives in [design.md](design.md), [motion-dsl.md](motion-dsl.md), [storyboard.md](storyboard.md), [judging.md](judging.md).
 
 | time | goal | done when |
 |---|---|---|
